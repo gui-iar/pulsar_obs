@@ -1,0 +1,8 @@
+#!/bin/bash
+# pulsar_obs.sh
+# kill -9 $(pidof puma_release_1)
+# ionice -c 1 /home/observacion/softw/uhd/host/build/examples/puma_release_1 "$@" -a "serial=312D587"
+python /usr/bin/py_pulsar.py "$@"
+
+
+
