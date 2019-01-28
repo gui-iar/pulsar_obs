@@ -23,10 +23,10 @@ get_telescope_name() in sigproc_fb.c
 
 This data will be used by the .fil header file, from the .iar file
 Telescope ID,
-IAR-A1: 19
-IAR-A2: 20
-DSA-3:
-CLTC:
+IAR-A1: 55
+IAR-A2: 56
+DSA-3: 57
+CLTC: 58
 
 
 Machine ID,23
