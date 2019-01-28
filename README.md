@@ -30,26 +30,43 @@ CLTC: 58
 
 
 Machine ID,23
+
 USRP: 21
 
 
 #Now build tempo
+
 cd $PULSARSOFTWARE_DIR/tempo
+
 ./prepare
+
 ./configure F77=gfortran --prefix=$PULSARSOFTWARE_DIR LIBS=-lgslcblas CFLAGS=-f$
+
 make
+
 make install
 
+
 #Now build PRESTO
+
 cd $PRESTO/src
+
 make makewisdom
+
 make prep
+
 make
+
 #For some reason it does not find slalib in the first run
+
 make
+
 make clean
+
 cd $PRESTO/python
+
 make
+
 make clean
 
 
