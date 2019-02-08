@@ -21,15 +21,22 @@ make_polycos() in polycos.c
 SIGPROC-style filterbank format data,
 get_telescope_name() in sigproc_fb.c
 
+and aliases.c
+
 This data will be used by the .fil header file, from the .iar file
+
 Telescope ID,
-IAR-A1: 55
-IAR-A2: 56
-DSA-3: 57
-CLTC: 58
+
+IAR-A1: 19
+
+IAR-A2: 23
+
+DSA-3: 24
+
+CLTC: 25
 
 
-Machine ID,23
+Machine ID,
 
 USRP: 21
 
