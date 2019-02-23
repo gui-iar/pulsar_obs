@@ -747,7 +747,7 @@ tm_info = gmtime(&microtime.tv_sec);
 get_mjd_utc(tm_info);
 strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
 printf("DATE UTC: %s.%06ld   ", buffer, microtime.tv_usec);
-printf("MJD TZ=-3: %.20f\n",mjd);
+printf("MJD UTC: %.20f\n",mjd);
 tstart=mjd;
     if (!checkHeaderData()) return 0;
     if (!writeHeader()) { if (outfileptr!=NULL) { fclose(outfileptr); } return 0; }
