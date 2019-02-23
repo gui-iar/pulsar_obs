@@ -5,6 +5,7 @@
  * New fft processing thanks to Nando Pellegrini 
  * 
  * Modification and compilation by G.Gancio for the Antenna I at IAR - 2018. * 
+ * Reviwed By Federico Garcia and Luciano Combi - For timing & timestamp
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,6 +52,12 @@
 #include <rtl2filduo.h>
 #include <fftw3.h>
 #include <time.h>
+#include <termios.h>
+#include <sys/ioctl.h>
+#include <sys/signal.h>
+#include <errno.h>
+
+
 #include <sys/io.h>
 #ifndef _WIN32
 #include <unistd.h>
@@ -67,6 +74,7 @@
 #define write_buff 131072  // times 4 bytes 512Kbytes block for HDD write.
 #define d_type short
 #define base 0x378//0xd100 //0x378   //LPT0
+#define DEVICE "/dev/ttyS0"
 // ***********************************************************
 #define EXECUTE_OR_GOTO(label, ...) \
     if(__VA_ARGS__){ \
@@ -100,6 +108,8 @@
 //#define LONGITUDE -58.45
 // ***********************************************************
 struct tm *tm;
+struct tm *ts1;
+
 //time_t now =time(NULL);
 char workfile_name1[LINE_WIDTH];
 char workfile_name2[LINE_WIDTH];
@@ -171,13 +181,31 @@ pthread_t time_1;
 pthread_t noise_cal;
 pid_t pid;
 pid_t pid2;
+
+struct timeval ontime;
+
 // Function definitions **********************************************************************
+struct timeval wait_full_sec_micro(void);
+void get_mjd_utc(struct tm*);
 void zenith_sideraltime(void);
 void set_port(void);  //set LPT port for the noise diode
 void noise_on(void);  //Turn noise diode ON
 void noise_off(void); //Turn Noise diode OFF
 void wait_full_sec(void);
+int cfileexists(const char* filename);
 // **********************************************************************
+int get_dcd_state(int fd)
+{
+    int serial = 0;
+    if(ioctl(fd, TIOCMGET, &serial) < 0)
+    {
+        printf("ioctl() failed: %d: %s\n", errno, strerror(errno));
+        return -1;
+    }
+
+    return (serial & TIOCM_CAR) ? 1 : 0;
+}
+
 static bool find_string(uhd_string_vector_handle h, char *str) 
 { // Function used as part of the detection of the reference CLK
   char buff[128];
@@ -210,7 +238,8 @@ void random_string(char * string, unsigned length)
 // **********************************************************************
 void* toggle_cal()
 { // Thread for Pulsar simulation for calibration 1 sec on - two sec off
-   wait_full_sec();
+   //wait_full_sec();
+   wait_full_sec_micro();
    while(1){
 	noise_on();
 	usleep(1000*1000);
@@ -222,6 +251,7 @@ void* toggle_cal()
 void* timer_1()
 { // Thread function to show process, actually it just count the time spend. there is no actual check of the observation...
 int aux_c=0;
+sleep(2);
 printf("\n");
 for (aux_c=0;aux_c<secs;aux_c++){
 	fprintf(stderr,"Observing complete ---- %03.3f%%\r ",(float)((aux_c*100.0)/(secs)));
@@ -261,6 +291,17 @@ Once the first chid is released it will take the FFT of the N readed samples (eq
 This process will continue thru several reading up to the completition of the write_buffer of 512Kbytes. at this point it will call the second child process to do the write of the 512Kbyte data block.
 The parent process, as well the child process's are propertly sincronized to avoid the over-write of data arrays.
 */
+ //struct timeval ontime;
+ int omode = O_RDONLY;
+    int fd = open(DEVICE, omode, 0777);
+    if(fd < 0)
+    {
+        printf("open() failed: %d: %s\n", errno, strerror(errno));
+        return -1;
+    }
+
+    printf("Device opened, DCD state: %d\n", get_dcd_state(fd));
+
 
 
 // Set of variables used to share data with parent and child process...
@@ -311,6 +352,14 @@ if (pid < 0)
 }
 if (pid > 0) /************************************************ parent process */
 {
+
+   struct timeval tv;
+   char   buf1[80];
+   struct tm* tm_info;
+   struct timeval microtime;
+//   struct timespec nanotime = {0,0};
+   char buffer[80];
+
     int fork_start=0;
     printf("Pulsar Monitoring in Argentina - PUMA - A simple Pulsar RX using UHD's C API. Run as sudo or root.\n\n");
     if(uhd_set_thread_priority(uhd_default_thread_priority, true)){
@@ -571,6 +620,10 @@ if(External_REF){
     EXECUTE_OR_GOTO(free_rx_streamer,
         uhd_rx_streamer_max_num_samps(rx_streamer, &samps_per_buff_2)
     )
+   
+   printf("\n You just wait a little more...\n");
+   sleep(10);
+
 
 // Turn noise diode off, just in case, if calibration is used start the thread for the Noise diode calibration
    noise_off();
@@ -580,21 +633,6 @@ if(External_REF){
         if(USE_DIODE)
                 pthread_create(&noise_cal, NULL, &toggle_cal, NULL);
 //--------------------------------------------------------------------------------------------------------------------------------
-//fprintf(stderr, "Issuing stream command.\n");
-//    wait_full_sec(); // wait for full second to round up.
-//    EXECUTE_OR_GOTO(free_buffer,
-//        uhd_rx_streamer_issue_stream_cmd(rx_streamer, &stream_cmd)
-//    )
-/// Prepare the .fil File and header, take the actuall time (start time of readings) and the sidereal time
-//   zenith_sideraltime();
-//   tstart=mjd;
-//    if (!checkHeaderData()) return 0;
-//    if (!writeHeader()) { if (outfileptr!=NULL) { fclose(outfileptr); } return 0; }
-//    if(!(outfileptr = fopen(outfile_name, "ab"))) { sprintf(errmsg, "Cannot open output file '%s' !!!\n\n",outfile_name); return false; };
-//--------------------------------------------------------------------------------------------------------------------------------
-
-//    strcpy(outfile_name_2,outfile_name);
-//    strcpy(outfile_name_aux,outfile_name_2);
     fprintf(stderr, "Buffer size in samples: %d\n", (int)samps_per_buff);
     buff = malloc(samps_per_buff * 2 * sizeof(d_type));
     buffs_ptr = (void**)&buff;
@@ -609,71 +647,54 @@ if(External_REF){
    uhd_rx_metadata_error_code_t error_code;
 
 //--------------------------------------------------------------------------------------------------------------------------------
-fprintf(stderr, "Issuing stream command.\n");
-//    wait_full_sec(); // wait for full second to round up.
-//    EXECUTE_OR_GOTO(free_buffer,
-//        uhd_rx_streamer_issue_stream_cmd(rx_streamer, &stream_cmd)
-//    )
-//int elias=0;
-//for(elias=0;elias<150;elias++){
-//    struct timespec tstart1={0,0}, tend={0,0};
-//    clock_gettime(CLOCK_MONOTONIC, &tstart1);
-// Prepare the .fil File and header, take the actuall time (start time of readings) and the sidereal time
+fprintf(stderr, "Prepare to Issuing stream command.\n");
 
-   time_t now =time(NULL);
+   gettimeofday(&tv, NULL);
+   ts1 = localtime(&tv.tv_sec);
+   tstart=58536.6;
+   strftime(buf1, sizeof(buf1), "%Y%m%d_%H%M%S", ts1);
+   printf("timeofday: %s.%06ld\n",buf1,tv.tv_usec);
 
-   tm=localtime(&now);
-   //             struct tm tm = *localtime(&t);
+// build header, filenames, etc one second in advance
+   strcpy(workfile_name11,source_name);
+   char *dotPosn = strpbrk(workfile_name1,".");
+   if(dotPosn != NULL) { *dotPosn = '\0'; }
+   strcat(workfile_name1,OUTPUT_FILE_EXT);
+   strcpy(outfile_name, workfile_name1);
 
-        strcpy(workfile_name11,source_name);
-        char *dotPosn = strpbrk(workfile_name1,".");
-        if(dotPosn != NULL) { *dotPosn = '\0'; }
-        strcat(workfile_name1,OUTPUT_FILE_EXT);
-        strcpy(outfile_name, workfile_name1);
-
-printf("now: %d-%d-%d %d:%d:%d\n", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec+1);
-sprintf(workfile_name1,"%s_%d%02d%02d_%02d%02d%02d",workfile_name11,tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour,tm->tm_min, tm->tm_sec+1);
-
-        if (dsratio !=1)
+   printf("now: %d-%d-%d %d:%d:%d\n", ts1->tm_year + 1900, ts1->tm_mon + 1, ts1->tm_mday, ts1->tm_hour, ts1->tm_min, ts1->tm_sec);
+   sprintf(workfile_name1,"%s_%d%02d%02d_%02d%02d%02d",workfile_name11,ts1->tm_year + 1900, ts1->tm_mon + 1, ts1->tm_mday, ts1->tm_hour,ts1->tm_min, ts1->tm_sec);
+   if (dsratio !=1)
         {
                 sprintf(workfile_name2,"ds%d_%s",dsratio,workfile_name1); //tsamp *= dsratio;
                 strcpy(outfile_name, workfile_name2);
         }
 
-
    strcat(outfile_name,OUTPUT_FILE_EXT);
-   zenith_sideraltime();
-   tstart=mjd;
     if (!checkHeaderData()) return 0;
     if (!writeHeader()) { if (outfileptr!=NULL) { fclose(outfileptr); } return 0; }
     if(!(outfileptr = fopen(outfile_name, "ab"))) { sprintf(errmsg, "Cannot open output file '%s' !!!\n\n",outfile_name); return false; };
-//--------------------------------------------------------------------------------------------------------------------------------
-strcpy(outfile_name_2,outfile_name);
-strcpy(outfile_name_aux,outfile_name_2);
+   strcpy(outfile_name_2,outfile_name);
+   strcpy(outfile_name_aux,outfile_name_2);
 
+// end header, etc.
   *fft_go=0;
    fork_start=0;
    sem_post(fft_start); // realse the child process so it can wait for the data to process.
    sem_post(write_start); // realse the child process so it can wait for the data to write.
-// obtener la hora......como espero el segundo completo le sumo el entero a la fraccion..... 1.2seg -> 2 
-   wait_full_sec(); // wait for full second to round up.
-   time_t now1 =time(NULL);
-   tm=localtime(&now1);
-
+   num_rx_samps = 0;
+// wait one second to start the acquisition to start just at zero and to recover for the previous second in filename
+  microtime = wait_full_sec_micro();
+  //tm_info = gmtime(&microtime.tv_sec); // se cambio al finalizar la adquisicion.
+//---------------------------------------------------------------------------------------------------
+    //num_rx_samps = 0;
     EXECUTE_OR_GOTO(free_buffer,
         uhd_rx_streamer_issue_stream_cmd(rx_streamer, &stream_cmd)
     )
-
-
 // Ettus B2xx Read loop 
-// clock_gettime(CLOCK_MONOTONIC, &tend);
-//    printf("some_long_computation took about %.5f seconds\n",
-//           ((double)tend.tv_sec + 1.0e-9*tend.tv_nsec) -
-//           ((double)tstart1.tv_sec + 1.0e-9*tstart1.tv_nsec));
-//}
    for(loop_samps=0;loop_samps<tot_samps;loop_samps++)
 	{
-	num_rx_samps = 0;
+//	num_rx_samps = 0;
 	EXECUTE_OR_GOTO(close_file,
 		uhd_rx_streamer_recv(rx_streamer, buffs_ptr, samps_per_buff, &md, 3.0, false, &num_rx_samps) //Actual reading.
 	)
@@ -704,6 +725,7 @@ strcpy(outfile_name_aux,outfile_name_2);
 	if(*fft_go==5)
 		goto close_file;
 	num_acc_samps += num_rx_samps;
+	num_rx_samps = 0;
 }
 // Once the loop is done, means the observation is finished, it closes the child process's and clean the memory, variables, etc.
     // Cleanup
@@ -721,8 +743,12 @@ sem_unlink(SEM4);
 
 printf("End ADQ.\n");
 
-   zenith_sideraltime();
-   tstart=mjd;
+tm_info = gmtime(&microtime.tv_sec);
+get_mjd_utc(tm_info);
+strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+printf("DATE UTC: %s.%06ld   ", buffer, microtime.tv_usec);
+printf("MJD TZ=-3: %.20f\n",mjd);
+tstart=mjd;
     if (!checkHeaderData()) return 0;
     if (!writeHeader()) { if (outfileptr!=NULL) { fclose(outfileptr); } return 0; }
     if(!(outfileptr = fopen(outfile_name, "ab"))) { sprintf(errmsg, "Cannot open output file '%s' !!!\n\n",outfile_name); return false; };
@@ -972,36 +998,6 @@ bool checkHeaderData()
 
 bool writeHeader(void)
 {
-//	char workfile_name1[LINE_WIDTH];
-//	char workfile_name2[LINE_WIDTH];
-//	char workfile_name11[LINE_WIDTH];
-//	time_t t = time(NULL);
-//	strcpy(workfile_name11,source_name);
-//	int utc2;
-//	utc2=(int) *utc;
-/*
-	if (utc2==1){
-		struct tm tm = *gmtime(&t);
-		//printf("now: %d-%d-%d %d:%d:%d\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec+1);
-sprintf(workfile_name1,"%s%s_%d%02d%02d_%02d%02d%02d",workfile_name11,"_utc", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec+1);
-	}
-	else
-        {
-		struct tm tm = *localtime(&t);
-                //printf("now: %d-%d-%d %d:%d:%d\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec+1);
-sprintf(workfile_name1,"%s_%d%02d%02d_%02d%02d%02d",workfile_name11,tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour,tm.tm_min, tm.tm_sec+1);
-        }
-*/
-//	char *dotPosn = strpbrk(workfile_name1,".");
-//	if(dotPosn != NULL) { *dotPosn = '\0'; }
-//	strcat(workfile_name1,OUTPUT_FILE_EXT);
-//	strcpy(outfile_name, workfile_name1);
-	
-//	if (dsratio !=1)
-//	{
-//		sprintf(workfile_name2,"ds%d_%s",dsratio,workfile_name1); //tsamp *= dsratio;
-//		strcpy(outfile_name, workfile_name2);
-//	}
 	int exist = cfileexists(outfile_name);
 	if(exist){
 		if(!(outfileptr = fopen(outfile_name, "rb+"))) { sprintf(errmsg, "Cannot open output file '%s' !!!\n\n",outfile_name);  return false; };
@@ -1012,8 +1008,9 @@ sprintf(workfile_name1,"%s_%d%02d%02d_%02d%02d%02d",workfile_name11,tm.tm_year +
 
 		send_string("HEADER_START",outfileptr);
 		send_string("rawdatafile",outfileptr);
+		send_string(outfile_name,outfileptr);
+		send_string("source_name",outfileptr);
 		send_string(source_name,outfileptr);
-		if (!strcmp(source_name,"")) { send_string("source_name",outfileptr); send_string(source_name,outfileptr); }
 		send_int("machine_id",machine_id,outfileptr);
 		send_int("telescope_id",telescope_id,outfileptr);
 		send_coords(src_raj,src_dej,az_start,za_start,outfileptr);
@@ -1086,111 +1083,18 @@ int file_exists(char *filename)
 	return(1);
   }
 }
-// Function to calculate the sidereal TIME.
-void zenith_sideraltime(void)
-{
-	//time_t now =time(NULL);
-	int year=0, month=0, day=0;
-	int  hour=0, min=0, sec=0,TZ=0;
-	int utc2=0;
-//	utc2=(int) *utc;
-//	if (utc2==1)
-//		TZ=0;
-//	else
-		TZ=-3;
-	//Long + at East and - at West of Greenwich
-	float jdsince1900=0;
-	double t=0, tsg=0;
-	double jd1900jan0= 2415020.0;
-	//GMT Time
-	//struct tm *tm;
-	//if (utc2==1){
-	//	tm=gmtime(&now);
-	//	LONGITUDE=0.0;
-	//}
-	//else{
-        //        tm=localtime(&now);
-	//outfileptr}
-
-
-	//printf("for LST now: %d-%d-%d %d:%d:%d\n", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec+1);
-	year = tm->tm_year + 1900;
-	month =tm->tm_mon + 1;
-	day= tm->tm_mday;
-	hour=(tm->tm_hour);
-	min=tm->tm_min;
-	sec= tm->tm_sec+1 ;
-	hour=(tm->tm_hour)-TZ;
-	if (hour > 23 )
-		hour=hour-24;
-	if (hour <3)
-		day=day+1;
-	// Julian day at 0h GMT of Greenwich
-	julian=0;
-	julian = (4712+year)*365.25;
-	if (julian == floor(julian))
-	julian = julian-1;
-	else
-	julian = floor(julian);
-	julian=julian-13;
-	//Day of Year
-	julian=julian + day;
-	if (month > 1)
-	julian=julian+31;
-	if (month > 2)
-	julian=julian+28;
-	if (month > 3)
-	julian=julian+31;
-	if (month > 4)
-	julian=julian+30;
-	if (month > 5)
-	julian=julian+31;
-	if (month > 6)
-	julian=julian+30;
-	if (month > 7)
-	julian=julian+31;
-	if (month > 8)
-	julian=julian+31;
-	if (month > 9)
-	julian=julian+30;
-	if (month > 10)
-	julian=julian+31;
-	if (month > 11)
-	julian=julian+30;
-	if(year == (floor(year/4)*4) && (month > 1))
-	julian=julian + 1;
-	julian=julian - .5;
-	jdsince1900=julian-jd1900jan0;
-	t=jdsince1900/36525;
-	tsg=6.64606 + 2400.05126 * t + 2.58055e-5 * t * t;
-	tsg=tsg+LONGITUDE/15.0;
-	tsg = tsg + (hour+min/60.0+sec/3600.0)*1.002737909265;
-	t = tsg - floor(tsg/24)*24;
-	s_hour = floor(t);
-	s_min = floor((t-s_hour)*60);
-	s_sec = ((t - s_hour - s_min/60.0)*3600);
-	s_t=t*15;
-	time_offset=0;
-	time_offset+=(double)((hour*60+min)*60+sec)/(24*60*60);
-	mjd=julian+time_offset - 2400000.5;
-	//if(debug)printf("Julian Date %f\n",julian+time_offset);
-	//if(debug)printf("Modified Julian Date %f\n",mjd);
-	//if(debug)printf("\n Local sidereal time %02d h, %02d m, %02d  s", s_hour, s_min, s_sec);
-	//if(debug)printf("\n Local sidereal Anlge %03.03f ", s_t);
-	//if(debug)printf("\n ");
-/* end */
-}
 
 // From here functions to control the Noise diode with the LPT port.
 void noise_on(void)
 { 
 if(USE_DIODE)
-	outb(0x01,base);
+	//outb(0x01,base); // A1
+	outb(0x02,base); // A2
 	}
 void noise_off(void)
 {
 if(USE_DIODE)
-	outb(0x00,base);
+	outb(0x00,base);  // A1 & A2
 	}
 void set_port(void)
 {
@@ -1202,31 +1106,63 @@ if(debug)printf("Using LPT for Noise Control\n");
 }
 }
 
-void wait_full_sec(void) {
-  char buffer[26];
-  int millisec;
-  struct tm* tm_info;
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  millisec = lrint(tv.tv_usec/1000.0); // Round to nearest millisec
-  if (millisec>=1000) { // Allow for rounding up to nearest second
-    millisec -=1000;
-    tv.tv_sec++;
-  }
-  tm_info = localtime(&tv.tv_sec);
-  strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
-  printf("Input time %s.%06d\n", buffer, millisec);
- do{
-        gettimeofday(&tv, NULL);
-        millisec = lrint(tv.tv_usec/1000.0); // Round to nearest milli$
-        if (millisec>=1000) { // Allow for rounding up to nearest seco$
-                millisec -=1000;
-                tv.tv_sec++;
-        }
-        tm_info = localtime(&tv.tv_sec);
-        strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
-  }while(millisec!=0);
-  printf("Release time %s.%06d\n", buffer, millisec);
+// Function to calculate the sidereal TIME.
+void get_mjd_utc(struct tm* tm)
+{
+	int year=0, month=0, day=0, hour=0, min=0, sec=0;
+	year  = tm->tm_year + 1900;
+	month = tm->tm_mon + 1;
+	day   = tm->tm_mday;
+	hour  = tm->tm_hour;
+	min   = tm->tm_min;
+	sec   = tm->tm_sec;
+
+	// Julian day at 0h GMT of Greenwich
+	julian=(4712+year)*365.25;
+	if (julian == floor(julian))
+		julian = julian-1;
+	else
+		julian = floor(julian);
+	julian=julian-13;
+	//Day of Year
+	julian=julian + day;
+	if (month > 1)
+		julian+=31;
+	if (month > 2)
+		julian+=28;
+	if (month > 3)
+		julian+=31;
+	if (month > 4)
+		julian+=30;
+	if (month > 5)
+		julian+=31;
+	if (month > 6)
+		julian+=30;
+	if (month > 7)
+		julian+=31;
+	if (month > 8)
+		julian+=31;
+	if (month > 9)
+		julian+=30;
+	if (month > 10)
+		julian+=31;
+	if (month > 11)
+		julian+=30;
+	if(year == (floor(year/4)*4) && (month > 1))
+		julian+=1;
+	julian-=0.5;
+		
+	mjd=julian-2400000.5;
+	time_offset=(double)((hour*60+min)*60+sec)/(86400.0);
+	mjd+=time_offset;
+}
+
+struct timeval wait_full_sec_micro(void) {
+	struct timeval microtime;
+	do{
+		gettimeofday(&microtime, NULL);
+   	}while(microtime.tv_usec!=0);
+   	return microtime;
 }
 
 //-------------------------------------------------------------------------------------------------------------------------------
