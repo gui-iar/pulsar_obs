@@ -30,6 +30,7 @@
 #        define ftello _ftelli64
 #    endif
 #endif
+#include <signal.h>
 #include <semaphore.h>
 #include <fcntl.h>           /* For O_* constants */
 #include <sys/stat.h>
@@ -107,6 +108,7 @@
 #define debug 1
 //#define LONGITUDE -58.45
 // ***********************************************************
+static volatile int keepRunning = 1;
 struct tm *tm;
 struct tm *ts1;
 
@@ -194,6 +196,9 @@ void noise_off(void); //Turn Noise diode OFF
 void wait_full_sec(void);
 int cfileexists(const char* filename);
 // **********************************************************************
+void intHandler(int dummy) {
+    keepRunning = 0;
+}
 int get_dcd_state(int fd)
 {
     int serial = 0;
@@ -386,6 +391,7 @@ if (pid > 0) /************************************************ parent process */
     noise_off();
     printf("SW-Version date: %s %s\n",__DATE__,__TIME__);
     *utc=0;
+    signal(SIGINT, intHandler);
 // Manual input of parameters.
     while((option = getopt(argc, argv, "a:vhntp:i:d:s:c:x:z:u")) != -1){
         switch(option){
@@ -726,7 +732,12 @@ fprintf(stderr, "Prepare to Issuing stream command.\n");
 		goto close_file;
 	num_acc_samps += num_rx_samps;
 	num_rx_samps = 0;
-}
+	if(keepRunning==0)
+		{
+		printf("\n Ctrl-C detected....bye bye...\n");
+		goto close_file;
+		}
+	}
 // Once the loop is done, means the observation is finished, it closes the child process's and clean the memory, variables, etc.
     // Cleanup
 close_file:
@@ -1088,8 +1099,8 @@ int file_exists(char *filename)
 void noise_on(void)
 { 
 if(USE_DIODE)
-	//outb(0x01,base); // A1
-	outb(0x02,base); // A2
+	outb(0x01,base); // A1
+	//outb(0x02,base); // A2
 	}
 void noise_off(void)
 {
