@@ -7,6 +7,11 @@
  * Modification and compilation by G.Gancio for the Antenna I at IAR - 2018. * 
  * Reviwed By Federico Garcia and Luciano Combi - For timing & timestamp
  *
+ * Modification to use two Ettus SDR Boards with the options to :
+ * extend the bandwith  
+ * adding two polarizations
+ * writing two polarizations as consecutive channels IF0Ch0-Chn IF1Ch0-Chn 
+ * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -20,6 +25,30 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
+/*-------------------------------------------
+Board Codes
+Backend-1
+    name: MyB210
+    serial: 30AC261
+    name: B205i
+    serial: 312D58D
+
+Backend-2 
+    name: B205i
+    serial: 314C049
+    name: B205i
+    serial: 314F813
+
+Backend-3
+    name: B205i
+    serial: 312D587
+    name: B205i
+    serial: 312D5A3
+
+
+*///-------------------------------------------
+
 
 #ifdef _WIN32
 #    ifdef __MINGW32__
@@ -69,6 +98,11 @@
 #include "getopt/getopt.h"
 #endif
 //Defines ***********************************
+#define two_pol 0
+#define add_pol 0
+#define add_freqs 1
+#define board_1 "serial=30AC261"
+#define board_2 "serial=312D58D"
 #define show_proc 1
 #define External_REF 1
 #define USE_DIODE 1
@@ -120,6 +154,9 @@ char workfile_name11[LINE_WIDTH];
 float LONGITUDE=-58.45;
 size_t samps_per_buff; //32768
 size_t samps_per_buff_2;
+size_t b_samps_per_buff; //32768
+size_t b_samps_per_buff_2;
+
 int nop=0;
 int Q;
 long long int count=0;
@@ -148,6 +185,7 @@ unsigned long ioutMax_1, ioutMax_2;
 long long data_len;
 FILE *infileptr1, *infileptr2, *outfileptr, *obsdatptr;
 double freq = 150.0e6;
+double freq_b = 150.0e6;
 double ol = 1570.405e6;
 double rate = 10.0e6;
 double gain = 0.0;
@@ -161,12 +199,16 @@ double time_offset=0.0; /* Noon */
 double julian,mjd;
 d_type *buff = NULL;
 d_type *buff2 = NULL;
+d_type *b_buff = NULL;
+d_type *b_buff2 = NULL;
 d_type *glob_var = NULL;
+d_type *b_glob_var = NULL;
 int *utc;
 int *fft_go;
 int *DECIM;
 int *fft_samples;
 float *data_temp = NULL;
+float *b_data_temp = NULL;
 char *outfile_name_2 = NULL;
 sem_t *fft_start;
 sem_t *fft_done;
@@ -176,6 +218,8 @@ char* filename = "out.dat";
 int subch;
 size_t num_rx_samps = 0;
 size_t num_rx_samps2 = 0;
+size_t b_num_rx_samps = 0;
+size_t b_num_rx_samps2 = 0;
 FILE *fp[8];
 char *file0 = NULL;
 char *file_aux = NULL;
@@ -256,7 +300,7 @@ void* toggle_cal()
 void* timer_1()
 { // Thread function to show process, actually it just count the time spend. there is no actual check of the observation...
 int aux_c=0;
-sleep(2);
+sleep(10);
 printf("\n");
 for (aux_c=0;aux_c<secs;aux_c++){
 	fprintf(stderr,"Observing complete ---- %03.3f%%\r ",(float)((aux_c*100.0)/(secs)));
@@ -309,8 +353,11 @@ The parent process, as well the child process's are propertly sincronized to avo
 
 
 
+
 // Set of variables used to share data with parent and child process...
 glob_var = mmap(NULL, 8192*2*10*sizeof(d_type), PROT_READ | PROT_WRITE,
+                    MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+b_glob_var = mmap(NULL, 8192*2*10*sizeof(d_type), PROT_READ | PROT_WRITE,
                     MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 
 fft_go = mmap(NULL, sizeof *fft_go, PROT_READ | PROT_WRITE,
@@ -327,7 +374,8 @@ fft_samples = mmap(NULL, sizeof *fft_samples, PROT_READ | PROT_WRITE,
 
 data_temp = mmap(NULL, write_buff*sizeof(float), PROT_READ | PROT_WRITE,
                     MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-
+b_data_temp = mmap(NULL, write_buff*sizeof(float), PROT_READ | PROT_WRITE,
+                    MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 
 outfile_name_2 = mmap(NULL, sizeof LINE_WIDTH*sizeof(char), PROT_READ | PROT_WRITE,
                     MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -371,6 +419,7 @@ if (pid > 0) /************************************************ parent process */
         fprintf(stderr, "Unable to set thread priority. Continuing anyway.\n");}
     int option = 0;
     char* device_args = "";
+    char* device_args_2 = "";
     size_t channel = 0;
     bool verbose = false;
     int return_code = EXIT_SUCCESS;
@@ -381,7 +430,9 @@ if (pid > 0) /************************************************ parent process */
     int man_chs=0;
     double aux_t=0.0;
     void **buffs_ptr = NULL;
+    void **b_buffs_ptr = NULL;
     size_t num_acc_samps = 0;
+    size_t b_num_acc_samps = 0;
     *fft_go=0;
     strcpy(source_name,"");
     strcpy(obsdatafile_name,"");
@@ -455,8 +506,10 @@ if (pid > 0) /************************************************ parent process */
     if (man_avg!=0)
         avg_div=man_avg;
     samps_per_buff=avg_div;
+    b_samps_per_buff=avg_div;
     if (man_rate!=0)
-	rate=man_rate*1e6;
+		rate=(man_rate*1e6)/2;
+	
     *DECIM=samps_per_buff/Q;
     dsratio=avg_div;
     aux_t=(rate/avg_div);
@@ -472,6 +525,24 @@ if (pid > 0) /************************************************ parent process */
     	foff=((rate/Q)*-1);
     	freq=ol-(fch1-(rate/2));
 	}
+	if (add_freqs==1)
+		{
+			if(ol<1.0){
+			printf("ADD Freq Direct conversion\n");
+			foff=(((rate*2)/(Q*2)));
+			freq=(fch1-(rate/2));
+			}
+			else
+			{
+			printf("ADD FREQ IF conversion\n");
+				foff=(((rate*2)/(Q*2))*-1);
+				freq=ol-(fch1-(rate/2));
+			}	
+		//freq=freq+(rate);
+		freq_b=freq+(rate);	
+		}
+	else if((add_pol==1)||(two_pol==1))
+		freq_b=freq;
     printf("Number of RF Channels %d\n",Q);
     printf("Highest RF %fHz - Local Oscillator %fHz - \nchannel sample time %f - \naverage %d \nSample Rate %f\n",fch1/1e6,ol/1e6,tsamp*1e6,avg_div,rate);
     *fft_samples=samps_per_buff;
@@ -480,7 +551,7 @@ if (pid > 0) /************************************************ parent process */
     uhd_usrp_handle usrp;
     fprintf(stderr, "Creating USRP with args \"%s\"...\n", device_args);
     EXECUTE_OR_GOTO(free_option_strings,
-        uhd_usrp_make(&usrp, device_args)
+        uhd_usrp_make(&usrp, board_1)//device_args)
     )
 
     // Create RX streamer
@@ -617,18 +688,20 @@ if(External_REF){
 
 
     // Set up streamer
-    EXECUTE_OR_GOTO(free_rx_streamer,
-        uhd_usrp_get_rx_stream(usrp, &stream_args, rx_streamer)
-    )
+//    EXECUTE_OR_GOTO(free_rx_streamer,
+//        uhd_usrp_get_rx_stream(usrp, &stream_args, rx_streamer)
+//    )
 
     // Set up buffer
     samps_per_buff_2=samps_per_buff;
-    EXECUTE_OR_GOTO(free_rx_streamer,
-        uhd_rx_streamer_max_num_samps(rx_streamer, &samps_per_buff_2)
-    )
+    // OJO!
+    b_samps_per_buff_2=b_samps_per_buff;
+//    EXECUTE_OR_GOTO(free_rx_streamer,
+//        uhd_rx_streamer_max_num_samps(rx_streamer, &samps_per_buff_2)
+//    )
    
-   printf("\n You just wait a little more...\n");
-   sleep(10);
+//   printf("\n You just wait a little more...\n");
+//   sleep(10);
 
 
 // Turn noise diode off, just in case, if calibration is used start the thread for the Noise diode calibration
@@ -642,6 +715,8 @@ if(External_REF){
     fprintf(stderr, "Buffer size in samples: %d\n", (int)samps_per_buff);
     buff = malloc(samps_per_buff * 2 * sizeof(d_type));
     buffs_ptr = (void**)&buff;
+    b_buff = malloc(b_samps_per_buff * 2 * sizeof(d_type));
+    b_buffs_ptr = (void**)&b_buff;
     // Actual streaming
     printf("N samples = %d \n",(int)samps_per_buff);
     printf("Seconds   = %d \n",secs);
@@ -651,7 +726,186 @@ if(External_REF){
    if(show_proc)pthread_create(&time_1, NULL, &timer_1, NULL);
    fork_start=0;
    uhd_rx_metadata_error_code_t error_code;
+//*******************************************************************************************
+//Second board
+    uhd_rx_metadata_error_code_t error_code_2;
+// Set up of the B2xx board---------------------------------------------------------
+    // Create USRP
+    uhd_usrp_handle usrp_2;
+    fprintf(stderr, "Creating USRP B with args \"%s\"...\n", device_args_2);
+    EXECUTE_OR_GOTO(free_option_strings,
+        uhd_usrp_make(&usrp_2, board_2)//device_args)
+    )
 
+    // Create RX streamer
+    uhd_rx_streamer_handle rx_streamer_2;
+    EXECUTE_OR_GOTO(free_usrp,
+        uhd_rx_streamer_make(&rx_streamer_2)
+    )
+
+    // Create RX metadata
+    uhd_rx_metadata_handle md_2;
+    EXECUTE_OR_GOTO(free_rx_streamer,
+        uhd_rx_metadata_make(&md_2)
+    )
+
+    // Create other necessary structs
+    uhd_tune_request_t tune_request_2 = {
+        .target_freq = freq_b,
+        .rf_freq_policy = UHD_TUNE_REQUEST_POLICY_AUTO,
+        .dsp_freq_policy = UHD_TUNE_REQUEST_POLICY_AUTO,
+    };
+    uhd_tune_result_t tune_result_2;
+
+    uhd_stream_args_t stream_args_2 = {
+        .cpu_format = "sc16",  //sc16
+        .otw_format = "sc8",   //sc8
+        .args = "",
+        .channel_list = &channel,
+        .n_channels = 0
+    };
+//----------------------------------------------------------------------------------------------------------------------------------------
+    uhd_stream_cmd_t stream_cmd_2 = {
+        .stream_mode = UHD_STREAM_MODE_START_CONTINUOUS,
+        .num_samps = 0,
+        .stream_now = true
+    };
+//----------------------------------------------------------------------------------------------------------------------------------------
+if(External_REF){
+	EXECUTE_OR_GOTO(free_rx_metadata,
+        uhd_usrp_set_clock_source(usrp_2, "external",channel)
+	)
+}
+else
+{
+        EXECUTE_OR_GOTO(free_rx_metadata,
+        uhd_usrp_set_clock_source(usrp_2, "internal",channel)
+        )
+}
+
+	char dev_str_2[1024];
+        EXECUTE_OR_GOTO(free_rx_metadata,
+	uhd_usrp_get_mboard_name(usrp_2, channel, dev_str_2, 1024)
+	)
+	fprintf(stderr,"Board Name: %s...\n",dev_str_2);
+
+
+	fprintf(stderr,"Wait for Clock Source: ...\n");
+
+	uhd_string_vector_handle mb_sensors_2;
+	uhd_string_vector_handle rx_sensors_2;
+	char *sensor_name_2;
+	uhd_sensor_value_handle value_h_2;
+	uhd_string_vector_make(&mb_sensors_2);
+	uhd_string_vector_make(&rx_sensors_2);
+	uhd_sensor_value_make_from_bool(&value_h_2, "", true, "True", "False");
+	uhd_usrp_get_mboard_sensor_names(usrp_2, 0, &mb_sensors_2);
+	uhd_usrp_get_rx_sensor_names(usrp_2, 0, &rx_sensors_2);
+
+if(External_REF){
+	if (find_string(mb_sensors_2, "ref_locked"))
+		{
+		sensor_name_2 = "ref_locked";
+		fprintf(stderr, "Wait for REF...");
+		} else {
+		fprintf(stderr, "REF- NOT Locked: ...\n");
+		sensor_name_2 = NULL;
+		goto close_file;
+		}
+	int cc_2=0;
+	bool val_out_2 = false;
+	do{
+	    	uhd_usrp_get_mboard_sensor(usrp_2, sensor_name_2, channel, &value_h_2);
+		uhd_sensor_value_to_bool(value_h_2, &val_out_2);
+		fprintf(stderr, " - %d ",val_out_2);
+		cc_2++;
+		usleep(1000*1000);
+	}while(val_out_2!=1  && cc_2<30);
+
+	if(val_out_2==1)
+	fprintf(stderr, "REF Locked: ...\n");
+	else{
+	fprintf(stderr, "REF NOT Locked: ...\n");
+	goto close_file;
+	}
+}
+// Set rate
+    fprintf(stderr, "Setting RX Rate: %f...\n", rate);
+    EXECUTE_OR_GOTO(free_rx_metadata,
+        uhd_usrp_set_rx_rate(usrp_2, rate, channel)
+    )
+
+    // See what rate actually is
+    EXECUTE_OR_GOTO(free_rx_metadata,
+        uhd_usrp_get_rx_rate(usrp_2, channel, &rate)
+    )
+    fprintf(stderr, "Actual RX Rate: %f...\n", rate);
+
+
+
+
+    // Set gain
+    fprintf(stderr, "Setting RX Gain: %f dB...\n", gain);
+    EXECUTE_OR_GOTO(free_rx_metadata,
+        uhd_usrp_set_rx_gain(usrp_2, gain, channel, "")
+    )
+
+    // See what gain actually is
+    EXECUTE_OR_GOTO(free_rx_metadata,
+        uhd_usrp_get_rx_gain(usrp_2, channel, "", &gain)
+    )
+    fprintf(stderr, "Actual RX Gain: %f...\n", gain);
+
+
+    // Set frequency
+    fprintf(stderr, "Setting RX frequency: %f MHz...\n", freq_b/1e6);
+    EXECUTE_OR_GOTO(free_rx_metadata,
+        uhd_usrp_set_rx_freq(usrp_2, &tune_request_2, channel, &tune_result_2)
+    )
+
+    // See what frequency actually is
+    EXECUTE_OR_GOTO(free_rx_metadata,
+        uhd_usrp_get_rx_freq(usrp_2, channel, &freq)
+    )
+    fprintf(stderr, "Actual RX frequency: %f MHz...\n", freq / 1e6);
+
+
+    // Set up streamer
+//    EXECUTE_OR_GOTO(free_rx_streamer,
+//        uhd_usrp_get_rx_stream(usrp_2, &stream_args_2, rx_streamer_2)
+//    )
+
+    // Set up buffer
+    b_samps_per_buff_2=b_samps_per_buff;
+//    EXECUTE_OR_GOTO(free_rx_streamer,
+//        uhd_rx_streamer_max_num_samps(rx_streamer_2, &b_samps_per_buff_2)
+//    )
+   
+
+//------------------------------------------------------------------------------------------
+
+//    EXECUTE_OR_GOTO(free_rx_streamer,
+//        uhd_usrp_get_rx_stream(usrp, &stream_args, rx_streamer)
+//    )
+
+//    EXECUTE_OR_GOTO(free_rx_streamer,
+//        uhd_usrp_get_rx_stream(usrp_2, &stream_args_2, rx_streamer_2)
+//    )
+
+//    EXECUTE_OR_GOTO(free_rx_streamer,
+//        uhd_rx_streamer_max_num_samps(rx_streamer, &samps_per_buff_2)
+//    )
+
+//    EXECUTE_OR_GOTO(free_rx_streamer,
+//        uhd_rx_streamer_max_num_samps(rx_streamer_2, &b_samps_per_buff_2)
+//    )
+
+
+   printf("\n You just wait a little more...\n");
+   sleep(10);
+
+//*******************************************************************************************
+//*******************************************************************************************
 //--------------------------------------------------------------------------------------------------------------------------------
 fprintf(stderr, "Prepare to Issuing stream command.\n");
 
@@ -689,14 +943,41 @@ fprintf(stderr, "Prepare to Issuing stream command.\n");
    sem_post(fft_start); // realse the child process so it can wait for the data to process.
    sem_post(write_start); // realse the child process so it can wait for the data to write.
    num_rx_samps = 0;
+   b_num_rx_samps = 0;
 // wait one second to start the acquisition to start just at zero and to recover for the previous second in filename
   microtime = wait_full_sec_micro();
   //tm_info = gmtime(&microtime.tv_sec); // se cambio al finalizar la adquisicion.
 //---------------------------------------------------------------------------------------------------
     //num_rx_samps = 0;
+//--------------------------------------------------------------------
+
+    EXECUTE_OR_GOTO(free_rx_streamer,
+        uhd_usrp_get_rx_stream(usrp, &stream_args, rx_streamer)
+    )
+
+    EXECUTE_OR_GOTO(free_rx_streamer,
+        uhd_usrp_get_rx_stream(usrp_2, &stream_args_2, rx_streamer_2)
+    )
+
+    EXECUTE_OR_GOTO(free_rx_streamer,
+        uhd_rx_streamer_max_num_samps(rx_streamer, &samps_per_buff_2)
+    )
+
+    EXECUTE_OR_GOTO(free_rx_streamer,
+        uhd_rx_streamer_max_num_samps(rx_streamer_2, &b_samps_per_buff_2)
+    )
+
+//-----------------------------------------------------------------------
+
     EXECUTE_OR_GOTO(free_buffer,
         uhd_rx_streamer_issue_stream_cmd(rx_streamer, &stream_cmd)
     )
+    EXECUTE_OR_GOTO(free_buffer,
+        uhd_rx_streamer_issue_stream_cmd(rx_streamer_2, &stream_cmd_2)
+    )
+
+//-----------------------------------------------------------------------
+
 // Ettus B2xx Read loop 
    for(loop_samps=0;loop_samps<tot_samps;loop_samps++)
 	{
@@ -712,10 +993,24 @@ fprintf(stderr, "Prepare to Issuing stream command.\n");
 		goto close_file;
 	}
 	num_rx_samps2=num_rx_samps;
-
+//***************************************************************************************************
+//Second board
+	EXECUTE_OR_GOTO(close_file,
+		uhd_rx_streamer_recv(rx_streamer_2, b_buffs_ptr, b_samps_per_buff, &md_2, 3.0, false, &b_num_rx_samps) //Actual reading.
+	)
+	EXECUTE_OR_GOTO(close_file,
+		uhd_rx_metadata_error_code(md_2, &error_code_2)
+	)
+	if(error_code_2 != UHD_RX_METADATA_ERROR_CODE_NONE){ // If there is an error in the reading it will breake the loop and jump to close the file.
+		fprintf(stderr, "Error code 0x%x was returned during streaming. Aborting.\n", return_code);
+		goto close_file;
+	}
+	b_num_rx_samps2=b_num_rx_samps;
+//***************************************************************************************************
         if(fork_start==1){ //Wait for child process to finish, only after first run..
 		sem_wait(fft_done);}
 	memcpy(glob_var,buff,(samps_per_buff * 2 * sizeof(d_type)));
+	memcpy(b_glob_var,b_buff,(b_samps_per_buff * 2 * sizeof(d_type)));
 	sem_post(fft_start); // realse the child process for the FFT and kept reading.
 	fork_start=1;
 	if (verbose) {
@@ -728,10 +1023,23 @@ fprintf(stderr, "Prepare to Issuing stream command.\n");
 				(int)full_secs,
 				frac_secs);
 	}
+	if (verbose) {
+		time_t full_secs;
+		double frac_secs;
+		uhd_rx_metadata_time_spec(md_2, &full_secs, &frac_secs);
+		fprintf(stderr, "Received packet: %zu samps request %zu samples recieved, %d full secs, %f frac secs\n",
+				b_samps_per_buff,
+				b_num_rx_samps,
+				(int)full_secs,
+				frac_secs);
+	}	
+	
 	if(*fft_go==5)
 		goto close_file;
 	num_acc_samps += num_rx_samps;
 	num_rx_samps = 0;
+	b_num_acc_samps += b_num_rx_samps;
+	b_num_rx_samps = 0;	
 	if(keepRunning==0)
 		{
 		printf("\n Ctrl-C detected....bye bye...\n");
@@ -770,6 +1078,9 @@ tstart=mjd;
 uhd_string_vector_free(&mb_sensors);
 uhd_string_vector_free(&rx_sensors);
 uhd_sensor_value_free(&value_h);
+uhd_string_vector_free(&mb_sensors_2);
+uhd_string_vector_free(&rx_sensors_2);
+uhd_sensor_value_free(&value_h_2);
 noise_off();
 free_buffer:
 if(buff){
@@ -778,8 +1089,17 @@ if(buff){
     }
     free(buff);
 }
+if(b_buff){
+    if(verbose){
+        fprintf(stderr, "Freeing buffer.\n");
+    }
+    free(b_buff);
+}
 buff = NULL;
 buffs_ptr = NULL;
+b_buff = NULL;
+b_buffs_ptr = NULL;
+
 if(buff2){
     if(verbose){
         fprintf(stderr, "Freeing buffer.\n");
@@ -787,19 +1107,29 @@ if(buff2){
     free(buff2);
 }
 buff2 = NULL;
-    
+ if(b_buff2){
+    if(verbose){
+        fprintf(stderr, "Freeing buffer.\n");
+    }
+    free(b_buff2);
+}
+b_buff2 = NULL;   
 
 free_rx_streamer:
 if(verbose){
     fprintf(stderr, "Cleaning up RX streamer.\n");
 }
 uhd_rx_streamer_free(&rx_streamer);
+uhd_rx_streamer_free(&rx_streamer_2);
+
+
 
 free_rx_metadata:
 if(verbose){
     fprintf(stderr, "Cleaning up RX metadata.\n");
 }
 uhd_rx_metadata_free(&md);
+uhd_rx_metadata_free(&md_2);
 
 free_usrp:
 if(verbose){
@@ -810,10 +1140,12 @@ if(return_code != EXIT_SUCCESS && usrp != NULL){
     fprintf(stderr, "USRP reported the following error: %s\n", error_string);
 }
 uhd_usrp_free(&usrp);
+uhd_usrp_free(&usrp_2);
 
 free_option_strings:
 if(strcmp(device_args,"")){
     free(device_args);
+    //free(device_args_2);
 }
 return return_code;
 }
@@ -834,6 +1166,8 @@ else
 			fflush(tempfile1);
 			fwrite((int32_t *)&(*data_temp), sizeof(int32_t)*write_buff ,1, tempfile1);
 			fflush(tempfile1);
+			//fwrite((int32_t *)&(*b_data_temp), sizeof(int32_t)*write_buff ,1, tempfile1);
+			//fflush(tempfile1);			
 		sem_post(write_done);
 		}
 		printf("End Write \n");
@@ -841,24 +1175,34 @@ else
 		}
 		else {
 // ************************************************************* child process for FFT
-	sleep(1);
+	sleep(15);
 	int write_flag=0;
-      	int i,N2;
+    int i,N2;
 	N2=*fft_samples;
 	fftw_plan p;
 	fftw_complex in[N2], out[N2],  buff_aux0[N2];
+	fftw_plan b_p;
+	fftw_complex b_in[N2], b_out[N2],  b_buff_aux0[N2];	
 	int ii=0;
+	float pol_a=0.0,pol_b=0.0;
 	float *fft1_decim = NULL;
 	fft1_decim = malloc(write_buff * sizeof(float));
+	float *b_fft1_decim = NULL;
+	b_fft1_decim = malloc(write_buff * sizeof(float));	
 	int num_rx_samps2=N2;
+	int b_num_rx_samps2=N2;
 	int i_aux=0;
+	int b_i_aux=0, ch_pol_aux=0;
 	printf("FFT Process - %f - %d - %d\n",freq,N2,*DECIM);
 	if(N2==0)
-	*fft_go=5;
+	*fft_go=5;  
 	//----------------------------------------------------------------------
 		p = fftw_plan_dft_1d(N2, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
 		for(ii=0;ii<N2/(*DECIM);ii++)
 		                fft1_decim[ii]=0.0;
+		b_p = fftw_plan_dft_1d(N2, b_in, b_out, FFTW_FORWARD, FFTW_ESTIMATE);
+		for(ii=0;ii<N2/(*DECIM);ii++)
+		                b_fft1_decim[ii]=0.0;		                
 	//----------------------------------------------------------------------
 	printf("Start process\n");
 	sem_wait(fft_start); // Block the child process so it can wait for valid data.
@@ -885,30 +1229,92 @@ else
 			buff_aux0[i+N2/2][0]=out[i][0];
 			buff_aux0[i+N2/2][1]=out[i][1];
 			}
-		// For loop to do the average of the FFT channels, acording to the required channels, and store them in the write buffer.
-		for (i=0;i<(N2/(*DECIM));i++)
-		  {
-		for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++){
-			fft1_decim[i_aux]= (buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1])+fft1_decim[i_aux];
+//*****************************************************************************************************************
+//Second board
+		ii=0;
+		//Move the data for the FFT array
+		for(i=0;i<(int)b_num_rx_samps2*2;i+=2){
+			        b_in[ii][0]=(float)b_glob_var[i]/255.0;
+			        b_in[ii][1]=(float)b_glob_var[i+1]/255.0;
+				ii++;
 			}
-			fft1_decim[i_aux]=fft1_decim[i_aux]/((float)(*DECIM)); 
-			i_aux++;
+	      fftw_execute(b_p); // execute the FFT
+		// Re-order the out from the FFT to have the Bandwidth in the proper orientation.
+	      for (i = N2/2; i < N2; i++){
+			b_buff_aux0[i-(N2/2)][0]=b_out[i][0];
+			b_buff_aux0[i-(N2/2)][1]=b_out[i][1];
+			}
+		for (i = 0; i < N2/2; i++){
+			b_buff_aux0[i+N2/2][0]=b_out[i][0];
+			b_buff_aux0[i+N2/2][1]=b_out[i][1];
+			}  
+//*****************************************************************************************************************
+		// For loop to do the average of the FFT channels, acording to the required channels, and store them in the write buffer.
+		//N2 Average value = FFT point Value
+		//DECIM = FFT/Q = FFT / Number of channels
+		if(add_pol==1)
+			{
+			for (i=0;i<(N2/(*DECIM));i++)
+				{
+					for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++)
+							{
+							pol_a=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))/(10*log10(100));
+							pol_b=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))/(10*log10(100));			
+							//fft1_decim[i_aux]= ((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))+((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))+fft1_decim[i_aux];
+							//fft1_decim[i_aux]= ((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))+fft1_decim[i_aux];
+							//fft1_decim[i_aux]= ((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))+fft1_decim[i_aux];
+							fft1_decim[i_aux]=(pol_a+pol_b)+fft1_decim[i_aux];
+							}
+					fft1_decim[i_aux]=(fft1_decim[i_aux])/((float)(*DECIM)); 
+					i_aux++;
+				}
+			}
+			else if((add_freqs==1)||(two_pol==1))
+				{
+				ch_pol_aux=(*DECIM);//*2;
+				for (i=0;i<(N2/(ch_pol_aux));i++)
+					{
+						for (ii = (i*(ch_pol_aux)); ii < ((ch_pol_aux)*(i+1)); ii++)
+								{
+								pol_a=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))/(10*log10(100));
+								fft1_decim[i_aux]=(pol_a)+fft1_decim[i_aux];
+								}
+						fft1_decim[i_aux]=(fft1_decim[i_aux])/((float)(ch_pol_aux)); 
+						i_aux++;
+					}
+				for (i=0;i<(N2/(ch_pol_aux));i++)
+                                        {
+						for (ii = (i*(ch_pol_aux)); ii < ((ch_pol_aux)*(i+1)); ii++)
+								{
+								pol_b=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))/(10*log10(100));
+								fft1_decim[i_aux]=(pol_b)+fft1_decim[i_aux];
+								}
+						fft1_decim[i_aux]=(fft1_decim[i_aux])/((float)(ch_pol_aux)); 
+						i_aux++;
+					}
+				}								
+				
+//*****************************************************************************************************************
+		if(i_aux==write_buff)
+			{ // if the write buffer is complete, it will wait for the previous write to be done and call the write-child porcess.
+			 if(write_flag==1)
+				{ //Wait for child process to finish.
+				sem_wait(write_done);
+				}
+			memcpy(data_temp,fft1_decim,write_buff*sizeof(float));
+			//memcpy(b_data_temp,b_fft1_decim,write_buff*sizeof(float)); 
+			i_aux=0;
+			b_i_aux=0;
+			sem_post(write_start);
+			// clean the average buffers for the next readings.
+			for (i=0;i<write_buff;i++) 
+				{
+				fft1_decim[i]=0;
+				b_fft1_decim[i]=0;
+				}
+			write_flag=1;
 			}
 
-		if(i_aux==write_buff){ // if the write buffer is complete, it will wait for the previous write to be done and call the write-child porcess.
-		 if(write_flag==1){ //Wait for child process to finish.
-			sem_wait(write_done);
-			}
-		memcpy(data_temp,fft1_decim,write_buff*sizeof(float)); 
-		i_aux=0;
-		sem_post(write_start);
-		// clean the average buffers for the next readings.
-		for (i=0;i<write_buff;i++) 
-		 {
-			fft1_decim[i]=0;
-		  }
-			write_flag=1;
-		}
 		if (*fft_go!=5){
 		sem_post(fft_done);
 		}
@@ -917,11 +1323,15 @@ else
 	// Once the observation is done, it will clear the mem.
 	printf("End Child.\n");
 	fftw_destroy_plan(p);
+	fftw_destroy_plan(b_p);
 	fftw_cleanup();
 	fft1_decim = NULL;
 	munmap(glob_var, sizeof *glob_var);
 	munmap(fft_go, sizeof *fft_go);
 	munmap(data_temp, sizeof *data_temp);
+	b_fft1_decim = NULL;
+	munmap(b_glob_var, sizeof *b_glob_var);
+	munmap(b_data_temp, sizeof *b_data_temp);	
 	}
 	}
 	return 1;
@@ -1028,13 +1438,19 @@ bool writeHeader(void)
 		send_int("data_type",1,outfileptr);
 		send_double("fch1",fch1/1e6,outfileptr);
 		send_double("foff",foff/1e6,outfileptr);
-		send_int("nchans",Q,outfileptr);
+		if (add_freqs==1)
+			send_int("nchans",Q*2,outfileptr);
+		else
+			send_int("nchans",Q,outfileptr);
 		send_int("nbeams",1,outfileptr);
 		send_int("ibeam",1,outfileptr);
 		send_int("nbits",nbits,outfileptr);
 		send_double("tstart",tstart,outfileptr);
 		send_double("tsamp",tsamp,outfileptr);
-		send_int("nifs",1,outfileptr);
+		if (( add_pol==1) || (add_freqs==1))
+			send_int("nifs",1,outfileptr);
+		if (two_pol==1)
+			send_int("nifs",2,outfileptr);
 		send_string("HEADER_END",outfileptr);
 
  
@@ -1099,8 +1515,8 @@ int file_exists(char *filename)
 void noise_on(void)
 { 
 if(USE_DIODE)
-	outb(0x01,base); // A1
-	//outb(0x02,base); // A2
+	//outb(0x01,base); // A1
+	outb(0x02,base); // A2
 	}
 void noise_off(void)
 {
