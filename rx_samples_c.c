@@ -545,7 +545,14 @@ if (pid > 0) /************************************************ parent process */
 		freq_b=freq;
     printf("Number of RF Channels %d\n",Q);
     printf("Highest RF %fHz - Local Oscillator %fHz - \nchannel sample time %f - \naverage %d \nSample Rate %f\n",fch1/1e6,ol/1e6,tsamp*1e6,avg_div,rate);
-    *fft_samples=samps_per_buff;
+        if(two_pol)
+                printf("Writing data of two independent polarizations.\n");
+        if(add_pol)
+                printf("Writing data of summed polarizations.\n");
+        if(add_freqs)
+                printf("Writing data of continous frequency channels, Twice BW and Twice Channels.\n");
+
+	*fft_samples=samps_per_buff;
 // Set up of the B2xx board---------------------------------------------------------
     // Create USRP
     uhd_usrp_handle usrp;
