@@ -1276,7 +1276,7 @@ else
 					{
 						for (ii = (i*(ch_pol_aux)); ii < ((ch_pol_aux)*(i+1)); ii++)
 								{
-								pol_a=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))/(10*log10(100));
+								pol_a=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))/(10*log10(100));
 								fft1_decim[i_aux]=(pol_a)+fft1_decim[i_aux];
 								}
 						fft1_decim[i_aux]=(fft1_decim[i_aux])/((float)(ch_pol_aux)); 
@@ -1286,7 +1286,7 @@ else
                                         {
 						for (ii = (i*(ch_pol_aux)); ii < ((ch_pol_aux)*(i+1)); ii++)
 								{
-								pol_b=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))/(10*log10(100));
+								pol_b=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))/(10*log10(100));
 								fft1_decim[i_aux]=(pol_b)+fft1_decim[i_aux];
 								}
 						fft1_decim[i_aux]=(fft1_decim[i_aux])/((float)(ch_pol_aux)); 
