@@ -7,11 +7,6 @@
  * Modification and compilation by G.Gancio for the Antenna I at IAR - 2018. * 
  * Reviwed By Federico Garcia and Luciano Combi - For timing & timestamp
  *
- * Modification to use two Ettus SDR Boards with the options to :
- * extend the bandwith  
- * adding two polarizations
- * writing two polarizations as consecutive channels IF0Ch0-Chn IF1Ch0-Chn 
- * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -97,12 +92,14 @@ Backend-3
 #include <fcntl.h>
 #include "getopt/getopt.h"
 #endif
-//Defines ***********************************
+//Defines **********************************
+#define future_time 4
+#define use_PPS 1 // 0 for 10MHz Reference
 #define two_pol 0
 #define add_pol 0
 #define add_freqs 1
-#define board_1 "serial=30AC261"
-#define board_2 "serial=312D58D"
+#define board_1 "serial=314C049"
+#define board_2 "serial=314F813"
 #define show_proc 1
 #define External_REF 1
 #define USE_DIODE 1
@@ -300,7 +297,7 @@ void* toggle_cal()
 void* timer_1()
 { // Thread function to show process, actually it just count the time spend. there is no actual check of the observation...
 int aux_c=0;
-sleep(10);
+sleep(14);
 printf("\n");
 for (aux_c=0;aux_c<secs;aux_c++){
 	fprintf(stderr,"Observing complete ---- %03.3f%%\r ",(float)((aux_c*100.0)/(secs)));
@@ -405,6 +402,8 @@ if (pid < 0)
 }
 if (pid > 0) /************************************************ parent process */
 {
+time_t full_secs;
+double frac_secs;
 
    struct timeval tv;
    char   buf1[80];
@@ -552,7 +551,7 @@ if (pid > 0) /************************************************ parent process */
         if(add_freqs)
                 printf("Writing data of continous frequency channels, Twice BW and Twice Channels.\n");
 
-	*fft_samples=samps_per_buff;
+    *fft_samples=samps_per_buff;
 // Set up of the B2xx board---------------------------------------------------------
     // Create USRP
     uhd_usrp_handle usrp;
@@ -589,13 +588,8 @@ if (pid > 0) /************************************************ parent process */
         .n_channels = 0
     };
 //----------------------------------------------------------------------------------------------------------------------------------------
-    uhd_stream_cmd_t stream_cmd = {
-        .stream_mode = UHD_STREAM_MODE_START_CONTINUOUS,
-        .num_samps = 0,
-        .stream_now = true
-    };
 //----------------------------------------------------------------------------------------------------------------------------------------
-if(External_REF){
+if(External_REF && (use_PPS == 0)){
 	EXECUTE_OR_GOTO(free_rx_metadata,
         uhd_usrp_set_clock_source(usrp, "external",channel)
 	)
@@ -626,7 +620,7 @@ else
 	uhd_usrp_get_mboard_sensor_names(usrp, 0, &mb_sensors);
 	uhd_usrp_get_rx_sensor_names(usrp, 0, &rx_sensors);
 
-if(External_REF){
+if(External_REF && (use_PPS == 0)){
 	if (find_string(mb_sensors, "ref_locked"))
 		{
 		sensor_name = "ref_locked";
@@ -772,13 +766,8 @@ if(External_REF){
         .n_channels = 0
     };
 //----------------------------------------------------------------------------------------------------------------------------------------
-    uhd_stream_cmd_t stream_cmd_2 = {
-        .stream_mode = UHD_STREAM_MODE_START_CONTINUOUS,
-        .num_samps = 0,
-        .stream_now = true
-    };
 //----------------------------------------------------------------------------------------------------------------------------------------
-if(External_REF){
+if(External_REF && (use_PPS == 0)){
 	EXECUTE_OR_GOTO(free_rx_metadata,
         uhd_usrp_set_clock_source(usrp_2, "external",channel)
 	)
@@ -809,7 +798,7 @@ else
 	uhd_usrp_get_mboard_sensor_names(usrp_2, 0, &mb_sensors_2);
 	uhd_usrp_get_rx_sensor_names(usrp_2, 0, &rx_sensors_2);
 
-if(External_REF){
+if(External_REF && (use_PPS == 0)){
 	if (find_string(mb_sensors_2, "ref_locked"))
 		{
 		sensor_name_2 = "ref_locked";
@@ -912,6 +901,63 @@ if(External_REF){
    sleep(10);
 
 //*******************************************************************************************
+   int64_t aux_secs=0,aux_secs_loop=0;
+   double aux_frac_secs=0.0;
+   //uhd_rx_metadata_error_code_t error_code;
+        if(External_REF && use_PPS)
+        {
+                printf("Using PPS \n");
+                EXECUTE_OR_GOTO(free_rx_metadata,
+                uhd_usrp_set_time_source(usrp, "external",channel)
+                )
+		EXECUTE_OR_GOTO(free_rx_metadata,
+                uhd_usrp_set_time_source(usrp_2, "external",channel)
+                )
+
+                sleep(0.25);
+                EXECUTE_OR_GOTO(free_rx_metadata,
+                uhd_usrp_set_clock_source(usrp, "internal",channel)
+                )
+                EXECUTE_OR_GOTO(free_rx_metadata,
+                uhd_usrp_set_clock_source(usrp_2, "internal",channel)
+                )
+
+                sleep(1.5);
+                EXECUTE_OR_GOTO(free_rx_metadata,
+                uhd_usrp_get_time_last_pps(usrp, channel, &aux_secs,&aux_frac_secs)
+                )
+                printf("Get Last PPS.....%d - %f\n",(int)aux_secs,aux_frac_secs);
+                do{
+                        EXECUTE_OR_GOTO(free_rx_metadata,
+                        uhd_usrp_get_time_last_pps(usrp, channel, &aux_secs_loop,&aux_frac_secs)
+                        )
+                        sleep(0.25);
+                }while(aux_secs==aux_secs_loop);
+                sleep(1.5);
+                EXECUTE_OR_GOTO(free_rx_metadata,
+                uhd_usrp_set_time_next_pps(usrp,0,0.0,channel)
+                )
+                EXECUTE_OR_GOTO(free_rx_metadata,
+                uhd_usrp_set_time_next_pps(usrp_2,0,0.0,channel)
+                )
+
+                sleep(2.5);
+        }
+		aux_secs_loop=0;
+		aux_frac_secs=0.0;
+                EXECUTE_OR_GOTO(free_rx_metadata,
+                uhd_usrp_get_time_now(usrp, channel, &aux_secs_loop,&aux_frac_secs)
+                )
+                printf("Board 0 - Get Time NOW.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
+                aux_secs_loop=0;
+                aux_frac_secs=0.0;
+                EXECUTE_OR_GOTO(free_rx_metadata,
+                uhd_usrp_get_time_now(usrp_2, channel, &aux_secs_loop,&aux_frac_secs)
+                )
+                printf("Board 1 - Get Time NOW.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
+
+//----------------------------------------------------------------------------------------
+
 //*******************************************************************************************
 //--------------------------------------------------------------------------------------------------------------------------------
 fprintf(stderr, "Prepare to Issuing stream command.\n");
@@ -952,12 +998,42 @@ fprintf(stderr, "Prepare to Issuing stream command.\n");
    num_rx_samps = 0;
    b_num_rx_samps = 0;
 // wait one second to start the acquisition to start just at zero and to recover for the previous second in filename
-  microtime = wait_full_sec_micro();
+  //microtime = wait_full_sec_micro();
   //tm_info = gmtime(&microtime.tv_sec); // se cambio al finalizar la adquisicion.
 //---------------------------------------------------------------------------------------------------
     //num_rx_samps = 0;
 //--------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------------------------------------
+  char t_buffer[26];
+  int millisec;
+//  struct tm* tm_info;
+//  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  tm_info = localtime(&tv.tv_sec);
+  millisec = lrint(tv.tv_usec/1000.0);
+  strftime(t_buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+  printf("Time before..... %s.%06d\n", t_buffer, millisec);
+  printf("Future Time ...%d\n",future_time);
+  //wait_full_sec(); // wait for full second to round up.
+  //time_t now1 =time(NULL);
+  //tm=localtime(&now1);
+//--------------------------------------------------------------------------------------------------------------------------------
 
+        uhd_stream_cmd_t        stream_cmd = {
+        .stream_mode = UHD_STREAM_MODE_START_CONTINUOUS,
+        .num_samps = 0,
+        .stream_now = false,
+        .time_spec_full_secs = future_time
+        };
+
+        uhd_stream_cmd_t        stream_cmd_2 = {
+        .stream_mode = UHD_STREAM_MODE_START_CONTINUOUS,
+        .num_samps = 0,
+        .stream_now = false,
+        .time_spec_full_secs = future_time
+        };
+
+//--------------------------------------------------------------------
     EXECUTE_OR_GOTO(free_rx_streamer,
         uhd_usrp_get_rx_stream(usrp, &stream_args, rx_streamer)
     )
@@ -984,6 +1060,25 @@ fprintf(stderr, "Prepare to Issuing stream command.\n");
     )
 
 //-----------------------------------------------------------------------
+int mjd_start=1;
+sleep(0.5);
+aux_secs_loop=0;
+aux_frac_secs=0.0;
+EXECUTE_OR_GOTO(free_rx_metadata,
+uhd_usrp_get_time_now(usrp, channel, &aux_secs_loop,&aux_frac_secs)
+)
+printf("USRP 0 - Time Before First Read.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
+aux_secs_loop=0;
+aux_frac_secs=0.0;
+EXECUTE_OR_GOTO(free_rx_metadata,
+uhd_usrp_get_time_now(usrp_2, channel, &aux_secs_loop,&aux_frac_secs)
+)
+printf("USRP 1 - Time Before First Read.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
+gettimeofday(&tv, NULL);
+tm_info = localtime(&tv.tv_sec);
+millisec = lrint(tv.tv_usec/1000.0);
+strftime(t_buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+printf("Local Time Before First Read..... %s.%06d\n", t_buffer, millisec);
 
 // Ettus B2xx Read loop 
    for(loop_samps=0;loop_samps<tot_samps;loop_samps++)
@@ -992,6 +1087,7 @@ fprintf(stderr, "Prepare to Issuing stream command.\n");
 	EXECUTE_OR_GOTO(close_file,
 		uhd_rx_streamer_recv(rx_streamer, buffs_ptr, samps_per_buff, &md, 3.0, false, &num_rx_samps) //Actual reading.
 	)
+	
 	EXECUTE_OR_GOTO(close_file,
 		uhd_rx_metadata_error_code(md, &error_code)
 	)
@@ -1013,6 +1109,47 @@ fprintf(stderr, "Prepare to Issuing stream command.\n");
 		goto close_file;
 	}
 	b_num_rx_samps2=b_num_rx_samps;
+//***************************************************************************************************
+if(mjd_start){
+        time_t now1 =time(NULL);
+        tm=localtime(&now1);
+        mjd_start=0;
+  gettimeofday(&tv, NULL);
+  tm_info = localtime(&tv.tv_sec);
+  millisec = lrint(tv.tv_usec/1000.0);
+
+  strftime(t_buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+  printf("Local Time Afer First Read..... %s.%06d\n", t_buffer, millisec);
+aux_secs_loop=0;
+aux_frac_secs=0.0;
+
+                EXECUTE_OR_GOTO(free_rx_metadata,
+                uhd_usrp_get_time_now(usrp, channel, &aux_secs_loop,&aux_frac_secs)
+                )
+                printf("USRP 0 - Time Afer First Read.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
+aux_secs_loop=0;
+aux_frac_secs=0.0;
+                EXECUTE_OR_GOTO(free_rx_metadata,
+                uhd_usrp_get_time_now(usrp_2, channel, &aux_secs_loop,&aux_frac_secs)
+                )
+                printf("USRP 1 - Time Afer First Read.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
+
+                time_t full_secs;
+                double frac_secs;
+                uhd_rx_metadata_time_spec(md, &full_secs, &frac_secs);
+                fprintf(stderr, "Received packet: %zu samps request %zu samples recieved, %d full secs, %f frac secs\n",
+                                samps_per_buff,
+                                num_rx_samps,
+                                (int)full_secs,
+                                frac_secs);
+                uhd_rx_metadata_time_spec(md_2, &full_secs, &frac_secs);
+                fprintf(stderr, "Received packet: %zu samps request %zu samples recieved, %d full secs, %f frac secs\n",
+                                b_samps_per_buff,
+                                b_num_rx_samps,
+                                (int)full_secs,
+                                frac_secs);
+
+        }
 //***************************************************************************************************
         if(fork_start==1){ //Wait for child process to finish, only after first run..
 		sem_wait(fft_done);}
@@ -1522,8 +1659,8 @@ int file_exists(char *filename)
 void noise_on(void)
 { 
 if(USE_DIODE)
-	//outb(0x01,base); // A1
-	outb(0x02,base); // A2
+	outb(0x01,base); // A1
+	//outb(0x02,base); // A2
 	}
 void noise_off(void)
 {
