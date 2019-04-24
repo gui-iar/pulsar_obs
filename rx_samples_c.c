@@ -297,7 +297,7 @@ void* toggle_cal()
 void* timer_1()
 { // Thread function to show process, actually it just count the time spend. there is no actual check of the observation...
 int aux_c=0;
-sleep(14);
+sleep(20);
 printf("\n");
 for (aux_c=0;aux_c<secs;aux_c++){
 	fprintf(stderr,"Observing complete ---- %03.3f%%\r ",(float)((aux_c*100.0)/(secs)));
@@ -402,14 +402,16 @@ if (pid < 0)
 }
 if (pid > 0) /************************************************ parent process */
 {
-time_t full_secs;
-double frac_secs;
 
    struct timeval tv;
    char   buf1[80];
    struct tm* tm_info;
    struct timeval microtime;
+   int millisec;
 //   struct timespec nanotime = {0,0};
+//   time_t full_secs;
+//   double frac_secs;
+
    char buffer[80];
 
     int fork_start=0;
@@ -1004,19 +1006,21 @@ fprintf(stderr, "Prepare to Issuing stream command.\n");
     //num_rx_samps = 0;
 //--------------------------------------------------------------------
 //--------------------------------------------------------------------------------------------------------------------------------
-  char t_buffer[26];
-  int millisec;
+  //char t_buffer[26];
+  //int millisec;
 //  struct tm* tm_info;
 //  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  tm_info = localtime(&tv.tv_sec);
-  millisec = lrint(tv.tv_usec/1000.0);
-  strftime(t_buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
-  printf("Time before..... %s.%06d\n", t_buffer, millisec);
+  //gettimeofday(&tv, NULL);
+  //tm_info = localtime(&tv.tv_sec);
+  //millisec = lrint(tv.tv_usec/1000.0);
+  //strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+  //printf("Time before..... %s.%06d\n", buffer, millisec);
   printf("Future Time ...%d\n",future_time);
   //wait_full_sec(); // wait for full second to round up.
   //time_t now1 =time(NULL);
   //tm=localtime(&now1);
+  //get_mjd_utc(tm_info);
+
 //--------------------------------------------------------------------------------------------------------------------------------
 
         uhd_stream_cmd_t        stream_cmd = {
@@ -1077,8 +1081,8 @@ printf("USRP 1 - Time Before First Read.....%d - %f\n",(int)aux_secs_loop,aux_fr
 gettimeofday(&tv, NULL);
 tm_info = localtime(&tv.tv_sec);
 millisec = lrint(tv.tv_usec/1000.0);
-strftime(t_buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
-printf("Local Time Before First Read..... %s.%06d\n", t_buffer, millisec);
+strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+printf("Local Time Before First Read..... %s.%06d\n", buffer, millisec);
 
 // Ettus B2xx Read loop 
    for(loop_samps=0;loop_samps<tot_samps;loop_samps++)
@@ -1111,15 +1115,18 @@ printf("Local Time Before First Read..... %s.%06d\n", t_buffer, millisec);
 	b_num_rx_samps2=b_num_rx_samps;
 //***************************************************************************************************
 if(mjd_start){
-        time_t now1 =time(NULL);
-        tm=localtime(&now1);
         mjd_start=0;
-  gettimeofday(&tv, NULL);
-  tm_info = localtime(&tv.tv_sec);
-  millisec = lrint(tv.tv_usec/1000.0);
+  time_t now1 =time(NULL);
+  tm=localtime(&now1);
+microtime = wait_full_sec_micro();
+  //gettimeofday(&tv, NULL);
+  //tm_info = localtime(&tv.tv_sec);
+  //millisec = lrint(tv.tv_usec/1000.0);
+  //get_mjd_utc(tm_info);
 
-  strftime(t_buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
-  printf("Local Time Afer First Read..... %s.%06d\n", t_buffer, millisec);
+
+  //strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+  //printf("Local Time Afer First Read..... %s.%06d\n", buffer, millisec);
 aux_secs_loop=0;
 aux_frac_secs=0.0;
 
@@ -1148,7 +1155,8 @@ aux_frac_secs=0.0;
                                 b_num_rx_samps,
                                 (int)full_secs,
                                 frac_secs);
-
+//tm_info = localtime(&tv.tv_sec);
+//get_mjd_utc(tm_info);
         }
 //***************************************************************************************************
         if(fork_start==1){ //Wait for child process to finish, only after first run..
@@ -1207,7 +1215,10 @@ sem_unlink(SEM4);
 printf("End ADQ.\n");
 
 tm_info = gmtime(&microtime.tv_sec);
+printf("1 End ADQ.\n");
 get_mjd_utc(tm_info);
+printf("2 End ADQ.\n");
+
 strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
 printf("DATE UTC: %s.%06ld   ", buffer, microtime.tv_usec);
 printf("MJD UTC: %.20f\n",mjd);
@@ -1681,12 +1692,14 @@ if(debug)printf("Using LPT for Noise Control\n");
 void get_mjd_utc(struct tm* tm)
 {
 	int year=0, month=0, day=0, hour=0, min=0, sec=0;
+	printf("aca 1 End ADQ.\n");
 	year  = tm->tm_year + 1900;
 	month = tm->tm_mon + 1;
 	day   = tm->tm_mday;
 	hour  = tm->tm_hour;
 	min   = tm->tm_min;
 	sec   = tm->tm_sec;
+	printf("aca 2 End ADQ.\n");
 
 	// Julian day at 0h GMT of Greenwich
 	julian=(4712+year)*365.25;
@@ -1728,12 +1741,22 @@ void get_mjd_utc(struct tm* tm)
 	mjd+=time_offset;
 }
 
+
+//struct timeval wait_full_sec_micro(void) {
+//	struct timeval microtime;
+//	do{
+//		gettimeofday(&microtime, NULL);
+//  	}while(microtime.tv_usec!=0);
+//   	return microtime;
+//}
+
+
 struct timeval wait_full_sec_micro(void) {
-	struct timeval microtime;
-	do{
-		gettimeofday(&microtime, NULL);
-   	}while(microtime.tv_usec!=0);
-   	return microtime;
+        struct timeval microtime;
+ //       do{
+                gettimeofday(&microtime, NULL);
+ //       }while(microtime.tv_usec!=0);
+        return microtime;
 }
 
 //-------------------------------------------------------------------------------------------------------------------------------
