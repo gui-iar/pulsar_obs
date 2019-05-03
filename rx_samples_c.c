@@ -7,6 +7,9 @@
  * Modification and compilation by G.Gancio for the Antenna I at IAR - 2018. * 
  * Reviwed By Federico Garcia and Luciano Combi - For timing & timestamp
  *
+ * Modified version by G.Gancio to use two USRP boards at the same time and sample ync with PPS and future_time
+ * The two boards can be used to add frequencies side by side or to add them for two polarizatios.
+ * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -81,8 +84,6 @@ Backend-3
 #include <sys/ioctl.h>
 #include <sys/signal.h>
 #include <errno.h>
-
-
 #include <sys/io.h>
 #ifndef _WIN32
 #include <unistd.h>
@@ -96,17 +97,16 @@ Backend-3
 #define future_time 4
 #define use_PPS 1 // 0 for 10MHz Reference
 #define two_pol 0
-#define add_pol 0
-#define add_freqs 1
-#define board_1 "serial=314C049"
-#define board_2 "serial=314F813"
+#define add_pol 1
+#define add_freqs 0
+#define board_1 "serial=312D587"
+#define board_2 "serial=312D5A3"
 #define show_proc 1
 #define External_REF 1
 #define USE_DIODE 1
 #define write_buff 131072  // times 4 bytes 512Kbytes block for HDD write.
 #define d_type short
 #define base 0x378//0xd100 //0x378   //LPT0
-#define DEVICE "/dev/ttyS0"
 // ***********************************************************
 #define EXECUTE_OR_GOTO(label, ...) \
     if(__VA_ARGS__){ \
@@ -137,13 +137,12 @@ Backend-3
 #define SWAP(a,b) tempr=(a); (a)=(b); (b)=tempr
 #define PI (6.28318530717959/2.0)
 #define debug 1
-//#define LONGITUDE -58.45
+#define UNUSED(x) (void)(x)
 // ***********************************************************
 static volatile int keepRunning = 1;
 struct tm *tm;
 struct tm *ts1;
 
-//time_t now =time(NULL);
 char workfile_name1[LINE_WIDTH];
 char workfile_name2[LINE_WIDTH];
 char workfile_name11[LINE_WIDTH];
@@ -191,7 +190,6 @@ int avg_div=0;
 time_t start, start2, stop, stop2, mstart, mstop;
 int  s_hour, s_min, s_sec;
 double s_t;
-//float longitud=LONGITUDE;
 double time_offset=0.0; /* Noon */
 double julian,mjd;
 d_type *buff = NULL;
@@ -236,77 +234,11 @@ void noise_on(void);  //Turn noise diode ON
 void noise_off(void); //Turn Noise diode OFF
 void wait_full_sec(void);
 int cfileexists(const char* filename);
-// **********************************************************************
-void intHandler(int dummy) {
-    keepRunning = 0;
-}
-int get_dcd_state(int fd)
-{
-    int serial = 0;
-    if(ioctl(fd, TIOCMGET, &serial) < 0)
-    {
-        printf("ioctl() failed: %d: %s\n", errno, strerror(errno));
-        return -1;
-    }
-
-    return (serial & TIOCM_CAR) ? 1 : 0;
-}
-
-static bool find_string(uhd_string_vector_handle h, char *str) 
-{ // Function used as part of the detection of the reference CLK
-  char buff[128];
-  size_t n;
-  int i;
-  uhd_string_vector_size(h, &n);
-  for (i=0;i<(int)n;i++) {
-    uhd_string_vector_at(h, i, buff, 128);
-    if (strstr(buff, str)) {
-      return true; 
-    }
-  }
-  return false; 
-}
-// **********************************************************************
-void random_string(char * string, unsigned length)
-{ // Random generator, used to create random semaphores. to make sure that there is no pipe talking with a dead process.
-  /* Seed number for rand() */
-  srand((unsigned int) time(0) + getpid());
-   
-  /* ASCII characters 97 to 122 */
-  unsigned i;  
-  for (i = 0; i < length; ++i)
-    {
-      string[i] = rand() % 25 + 97;
-    }
- 
-  string[i] = '\0';  
-}
-// **********************************************************************
-void* toggle_cal()
-{ // Thread for Pulsar simulation for calibration 1 sec on - two sec off
-   //wait_full_sec();
-   wait_full_sec_micro();
-   while(1){
-	noise_on();
-	usleep(1000*1000);
-	noise_off();
-	usleep(2000*1000);
-   }
-}
-// **********************************************************************
-void* timer_1()
-{ // Thread function to show process, actually it just count the time spend. there is no actual check of the observation...
-int aux_c=0;
-sleep(20);
-printf("\n");
-for (aux_c=0;aux_c<secs;aux_c++){
-	fprintf(stderr,"Observing complete ---- %03.3f%%\r ",(float)((aux_c*100.0)/(secs)));
-	usleep(1000*1000);
-}
-fprintf(stderr,"\nDone....Closing Device - Wait for it\n");
-sleep(1);
-return NULL;
-}
+void random_string(char * string, unsigned length);
+void* toggle_cal();
+void intHandler(int dummy);
+static bool find_string(uhd_string_vector_handle h, char *str);
+void* timer_1();
 // **********************************************************************
 void print_help(void){
     fprintf(stderr, "Pulsar Monitoring in Argentina - PUMA - A simple Pulsar RX using UHD's C API. Run as sudo or root.\n\n"
@@ -321,8 +253,6 @@ void print_help(void){
                     "    -d (data average - [power of 2 max:2048] none: from file)\n"
                     "    -s sample rate in MHz [1 to 20]\n"
                     "    -c number of subbands 1,2,4,8 \n"
-                    //"    -x Port Number \n"                    
-	            //"    -z ip address \n"
                     "    -u use UTC time instead of Local Time \n"
                     "    -h (print this help message)\n");
 };
@@ -337,19 +267,6 @@ Once the first chid is released it will take the FFT of the N readed samples (eq
 This process will continue thru several reading up to the completition of the write_buffer of 512Kbytes. at this point it will call the second child process to do the write of the 512Kbyte data block.
 The parent process, as well the child process's are propertly sincronized to avoid the over-write of data arrays.
 */
- //struct timeval ontime;
- int omode = O_RDONLY;
-    int fd = open(DEVICE, omode, 0777);
-    if(fd < 0)
-    {
-        printf("open() failed: %d: %s\n", errno, strerror(errno));
-        return -1;
-    }
-
-    printf("Device opened, DCD state: %d\n", get_dcd_state(fd));
-
-
-
 
 // Set of variables used to share data with parent and child process...
 glob_var = mmap(NULL, 8192*2*10*sizeof(d_type), PROT_READ | PROT_WRITE,
@@ -408,9 +325,6 @@ if (pid > 0) /************************************************ parent process */
    struct tm* tm_info;
    struct timeval microtime;
    int millisec;
-//   struct timespec nanotime = {0,0};
-//   time_t full_secs;
-//   double frac_secs;
 
    char buffer[80];
 
@@ -485,7 +399,6 @@ if (pid > 0) /************************************************ parent process */
                 printf("Number of channels %d\n",man_chs);
                 break;
            case 'x':
-                //portno=atoi( optarg );
                 printf("Port number %d\n",man_chs);
                 break;
 	   case 'z' :
@@ -510,7 +423,7 @@ if (pid > 0) /************************************************ parent process */
     b_samps_per_buff=avg_div;
     if (man_rate!=0)
 		rate=(man_rate*1e6)/2;
-	
+
     *DECIM=samps_per_buff/Q;
     dsratio=avg_div;
     aux_t=(rate/avg_div);
@@ -538,9 +451,8 @@ if (pid > 0) /************************************************ parent process */
 			printf("ADD FREQ IF conversion\n");
 				foff=(((rate*2)/(Q*2))*-1);
 				freq=ol-(fch1-(rate/2));
-			}	
-		//freq=freq+(rate);
-		freq_b=freq+(rate);	
+			}
+		freq_b=freq+(rate);
 		}
 	else if((add_pol==1)||(two_pol==1))
 		freq_b=freq;
@@ -559,7 +471,7 @@ if (pid > 0) /************************************************ parent process */
     uhd_usrp_handle usrp;
     fprintf(stderr, "Creating USRP with args \"%s\"...\n", device_args);
     EXECUTE_OR_GOTO(free_option_strings,
-        uhd_usrp_make(&usrp, board_1)//device_args)
+        uhd_usrp_make(&usrp, board_1)
     )
 
     // Create RX streamer
@@ -690,22 +602,9 @@ if(External_REF && (use_PPS == 0)){
     fprintf(stderr, "Actual RX frequency: %f MHz...\n", freq / 1e6);
 
 
-    // Set up streamer
-//    EXECUTE_OR_GOTO(free_rx_streamer,
-//        uhd_usrp_get_rx_stream(usrp, &stream_args, rx_streamer)
-//    )
-
     // Set up buffer
     samps_per_buff_2=samps_per_buff;
-    // OJO!
     b_samps_per_buff_2=b_samps_per_buff;
-//    EXECUTE_OR_GOTO(free_rx_streamer,
-//        uhd_rx_streamer_max_num_samps(rx_streamer, &samps_per_buff_2)
-//    )
-   
-//   printf("\n You just wait a little more...\n");
-//   sleep(10);
-
 
 // Turn noise diode off, just in case, if calibration is used start the thread for the Noise diode calibration
    noise_off();
@@ -726,7 +625,6 @@ if(External_REF && (use_PPS == 0)){
     int loop_samps=0,tot_samps=0;
     tot_samps=(int)ceil((secs*rate)/samps_per_buff);
     printf("Tot Sams reps %d\n",tot_samps);
-   if(show_proc)pthread_create(&time_1, NULL, &timer_1, NULL);
    fork_start=0;
    uhd_rx_metadata_error_code_t error_code;
 //*******************************************************************************************
@@ -737,7 +635,7 @@ if(External_REF && (use_PPS == 0)){
     uhd_usrp_handle usrp_2;
     fprintf(stderr, "Creating USRP B with args \"%s\"...\n", device_args_2);
     EXECUTE_OR_GOTO(free_option_strings,
-        uhd_usrp_make(&usrp_2, board_2)//device_args)
+        uhd_usrp_make(&usrp_2, board_2)
     )
 
     // Create RX streamer
@@ -868,36 +766,10 @@ if(External_REF && (use_PPS == 0)){
     fprintf(stderr, "Actual RX frequency: %f MHz...\n", freq / 1e6);
 
 
-    // Set up streamer
-//    EXECUTE_OR_GOTO(free_rx_streamer,
-//        uhd_usrp_get_rx_stream(usrp_2, &stream_args_2, rx_streamer_2)
-//    )
-
     // Set up buffer
     b_samps_per_buff_2=b_samps_per_buff;
-//    EXECUTE_OR_GOTO(free_rx_streamer,
-//        uhd_rx_streamer_max_num_samps(rx_streamer_2, &b_samps_per_buff_2)
-//    )
-   
 
 //------------------------------------------------------------------------------------------
-
-//    EXECUTE_OR_GOTO(free_rx_streamer,
-//        uhd_usrp_get_rx_stream(usrp, &stream_args, rx_streamer)
-//    )
-
-//    EXECUTE_OR_GOTO(free_rx_streamer,
-//        uhd_usrp_get_rx_stream(usrp_2, &stream_args_2, rx_streamer_2)
-//    )
-
-//    EXECUTE_OR_GOTO(free_rx_streamer,
-//        uhd_rx_streamer_max_num_samps(rx_streamer, &samps_per_buff_2)
-//    )
-
-//    EXECUTE_OR_GOTO(free_rx_streamer,
-//        uhd_rx_streamer_max_num_samps(rx_streamer_2, &b_samps_per_buff_2)
-//    )
-
 
    printf("\n You just wait a little more...\n");
    sleep(10);
@@ -905,7 +777,6 @@ if(External_REF && (use_PPS == 0)){
 //*******************************************************************************************
    int64_t aux_secs=0,aux_secs_loop=0;
    double aux_frac_secs=0.0;
-   //uhd_rx_metadata_error_code_t error_code;
         if(External_REF && use_PPS)
         {
                 printf("Using PPS \n");
@@ -958,10 +829,8 @@ if(External_REF && (use_PPS == 0)){
                 )
                 printf("Board 1 - Get Time NOW.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
 
-//----------------------------------------------------------------------------------------
 
 //*******************************************************************************************
-//--------------------------------------------------------------------------------------------------------------------------------
 fprintf(stderr, "Prepare to Issuing stream command.\n");
 
    gettimeofday(&tv, NULL);
@@ -981,7 +850,7 @@ fprintf(stderr, "Prepare to Issuing stream command.\n");
    sprintf(workfile_name1,"%s_%d%02d%02d_%02d%02d%02d",workfile_name11,ts1->tm_year + 1900, ts1->tm_mon + 1, ts1->tm_mday, ts1->tm_hour,ts1->tm_min, ts1->tm_sec);
    if (dsratio !=1)
         {
-                sprintf(workfile_name2,"ds%d_%s",dsratio,workfile_name1); //tsamp *= dsratio;
+                sprintf(workfile_name2,"ds%d_%s",dsratio,workfile_name1);
                 strcpy(outfile_name, workfile_name2);
         }
 
@@ -999,28 +868,8 @@ fprintf(stderr, "Prepare to Issuing stream command.\n");
    sem_post(write_start); // realse the child process so it can wait for the data to write.
    num_rx_samps = 0;
    b_num_rx_samps = 0;
-// wait one second to start the acquisition to start just at zero and to recover for the previous second in filename
-  //microtime = wait_full_sec_micro();
-  //tm_info = gmtime(&microtime.tv_sec); // se cambio al finalizar la adquisicion.
-//---------------------------------------------------------------------------------------------------
-    //num_rx_samps = 0;
-//--------------------------------------------------------------------
 //--------------------------------------------------------------------------------------------------------------------------------
-  //char t_buffer[26];
-  //int millisec;
-//  struct tm* tm_info;
-//  struct timeval tv;
-  //gettimeofday(&tv, NULL);
-  //tm_info = localtime(&tv.tv_sec);
-  //millisec = lrint(tv.tv_usec/1000.0);
-  //strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
-  //printf("Time before..... %s.%06d\n", buffer, millisec);
   printf("Future Time ...%d\n",future_time);
-  //wait_full_sec(); // wait for full second to round up.
-  //time_t now1 =time(NULL);
-  //tm=localtime(&now1);
-  //get_mjd_utc(tm_info);
-
 //--------------------------------------------------------------------------------------------------------------------------------
 
         uhd_stream_cmd_t        stream_cmd = {
@@ -1083,11 +932,10 @@ tm_info = localtime(&tv.tv_sec);
 millisec = lrint(tv.tv_usec/1000.0);
 strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
 printf("Local Time Before First Read..... %s.%06d\n", buffer, millisec);
-
+if(show_proc)pthread_create(&time_1, NULL, &timer_1, NULL);
 // Ettus B2xx Read loop 
    for(loop_samps=0;loop_samps<tot_samps;loop_samps++)
 	{
-//	num_rx_samps = 0;
 	EXECUTE_OR_GOTO(close_file,
 		uhd_rx_streamer_recv(rx_streamer, buffs_ptr, samps_per_buff, &md, 3.0, false, &num_rx_samps) //Actual reading.
 	)
@@ -1115,48 +963,36 @@ printf("Local Time Before First Read..... %s.%06d\n", buffer, millisec);
 	b_num_rx_samps2=b_num_rx_samps;
 //***************************************************************************************************
 if(mjd_start){
-        mjd_start=0;
-  time_t now1 =time(NULL);
-  tm=localtime(&now1);
-microtime = wait_full_sec_micro();
-  //gettimeofday(&tv, NULL);
-  //tm_info = localtime(&tv.tv_sec);
-  //millisec = lrint(tv.tv_usec/1000.0);
-  //get_mjd_utc(tm_info);
-
-
-  //strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
-  //printf("Local Time Afer First Read..... %s.%06d\n", buffer, millisec);
-aux_secs_loop=0;
-aux_frac_secs=0.0;
-
-                EXECUTE_OR_GOTO(free_rx_metadata,
-                uhd_usrp_get_time_now(usrp, channel, &aux_secs_loop,&aux_frac_secs)
-                )
-                printf("USRP 0 - Time Afer First Read.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
-aux_secs_loop=0;
-aux_frac_secs=0.0;
-                EXECUTE_OR_GOTO(free_rx_metadata,
-                uhd_usrp_get_time_now(usrp_2, channel, &aux_secs_loop,&aux_frac_secs)
-                )
-                printf("USRP 1 - Time Afer First Read.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
-
-                time_t full_secs;
-                double frac_secs;
-                uhd_rx_metadata_time_spec(md, &full_secs, &frac_secs);
-                fprintf(stderr, "Received packet: %zu samps request %zu samples recieved, %d full secs, %f frac secs\n",
+	aux_secs_loop=0;
+	aux_frac_secs=0.0;
+        EXECUTE_OR_GOTO(free_rx_metadata,
+        uhd_usrp_get_time_now(usrp, channel, &aux_secs_loop,&aux_frac_secs)
+        )
+        printf("USRP 0 - Time Afer First Read.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
+	aux_secs_loop=0;
+	aux_frac_secs=0.0;
+        EXECUTE_OR_GOTO(free_rx_metadata,
+        uhd_usrp_get_time_now(usrp_2, channel, &aux_secs_loop,&aux_frac_secs)
+        )
+        printf("USRP 1 - Time Afer First Read.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
+        time_t full_secs;
+        double frac_secs;
+        uhd_rx_metadata_time_spec(md, &full_secs, &frac_secs);
+        fprintf(stderr, "Received packet: %zu samps request %zu samples recieved, %d full secs, %f frac secs\n",
                                 samps_per_buff,
                                 num_rx_samps,
                                 (int)full_secs,
                                 frac_secs);
-                uhd_rx_metadata_time_spec(md_2, &full_secs, &frac_secs);
-                fprintf(stderr, "Received packet: %zu samps request %zu samples recieved, %d full secs, %f frac secs\n",
+        uhd_rx_metadata_time_spec(md_2, &full_secs, &frac_secs);
+        fprintf(stderr, "Received packet: %zu samps request %zu samples recieved, %d full secs, %f frac secs\n",
                                 b_samps_per_buff,
                                 b_num_rx_samps,
                                 (int)full_secs,
                                 frac_secs);
-//tm_info = localtime(&tv.tv_sec);
-//get_mjd_utc(tm_info);
+        mjd_start=0;
+        time_t now1 =time(NULL);
+        tm=localtime(&now1);
+        microtime = wait_full_sec_micro();
         }
 //***************************************************************************************************
         if(fork_start==1){ //Wait for child process to finish, only after first run..
@@ -1184,14 +1020,13 @@ aux_frac_secs=0.0;
 				b_num_rx_samps,
 				(int)full_secs,
 				frac_secs);
-	}	
-	
+	}
 	if(*fft_go==5)
 		goto close_file;
 	num_acc_samps += num_rx_samps;
 	num_rx_samps = 0;
 	b_num_acc_samps += b_num_rx_samps;
-	b_num_rx_samps = 0;	
+	b_num_rx_samps = 0;
 	if(keepRunning==0)
 		{
 		printf("\n Ctrl-C detected....bye bye...\n");
@@ -1215,9 +1050,7 @@ sem_unlink(SEM4);
 printf("End ADQ.\n");
 
 tm_info = gmtime(&microtime.tv_sec);
-printf("1 End ADQ.\n");
 get_mjd_utc(tm_info);
-printf("2 End ADQ.\n");
 
 strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
 printf("DATE UTC: %s.%06ld   ", buffer, microtime.tv_usec);
@@ -1300,7 +1133,6 @@ uhd_usrp_free(&usrp_2);
 free_option_strings:
 if(strcmp(device_args,"")){
     free(device_args);
-    //free(device_args_2);
 }
 return return_code;
 }
@@ -1321,8 +1153,6 @@ else
 			fflush(tempfile1);
 			fwrite((int32_t *)&(*data_temp), sizeof(int32_t)*write_buff ,1, tempfile1);
 			fflush(tempfile1);
-			//fwrite((int32_t *)&(*b_data_temp), sizeof(int32_t)*write_buff ,1, tempfile1);
-			//fflush(tempfile1);			
 		sem_post(write_done);
 		}
 		printf("End Write \n");
@@ -1347,7 +1177,7 @@ else
 	int num_rx_samps2=N2;
 	int b_num_rx_samps2=N2;
 	int i_aux=0;
-	int b_i_aux=0, ch_pol_aux=0;
+	int ch_pol_aux=0;
 	printf("FFT Process - %f - %d - %d\n",freq,N2,*DECIM);
 	if(N2==0)
 	*fft_go=5;  
@@ -1415,9 +1245,6 @@ else
 							{
 							pol_a=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))/(10*log10(100));
 							pol_b=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))/(10*log10(100));			
-							//fft1_decim[i_aux]= ((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))+((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))+fft1_decim[i_aux];
-							//fft1_decim[i_aux]= ((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))+fft1_decim[i_aux];
-							//fft1_decim[i_aux]= ((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))+fft1_decim[i_aux];
 							fft1_decim[i_aux]=(pol_a+pol_b)+fft1_decim[i_aux];
 							}
 					fft1_decim[i_aux]=(fft1_decim[i_aux])/((float)(*DECIM)); 
@@ -1426,7 +1253,7 @@ else
 			}
 			else if((add_freqs==1)||(two_pol==1))
 				{
-				ch_pol_aux=(*DECIM);//*2;
+				ch_pol_aux=(*DECIM);
 				for (i=0;i<(N2/(ch_pol_aux));i++)
 					{
 						for (ii = (i*(ch_pol_aux)); ii < ((ch_pol_aux)*(i+1)); ii++)
@@ -1447,8 +1274,7 @@ else
 						fft1_decim[i_aux]=(fft1_decim[i_aux])/((float)(ch_pol_aux)); 
 						i_aux++;
 					}
-				}								
-				
+				}
 //*****************************************************************************************************************
 		if(i_aux==write_buff)
 			{ // if the write buffer is complete, it will wait for the previous write to be done and call the write-child porcess.
@@ -1457,9 +1283,7 @@ else
 				sem_wait(write_done);
 				}
 			memcpy(data_temp,fft1_decim,write_buff*sizeof(float));
-			//memcpy(b_data_temp,b_fft1_decim,write_buff*sizeof(float)); 
 			i_aux=0;
-			b_i_aux=0;
 			sem_post(write_start);
 			// clean the average buffers for the next readings.
 			for (i=0;i<write_buff;i++) 
@@ -1670,8 +1494,8 @@ int file_exists(char *filename)
 void noise_on(void)
 { 
 if(USE_DIODE)
-	outb(0x01,base); // A1
-	//outb(0x02,base); // A2
+	//outb(0x01,base); // A1
+	outb(0x02,base); // A2
 	}
 void noise_off(void)
 {
@@ -1692,15 +1516,12 @@ if(debug)printf("Using LPT for Noise Control\n");
 void get_mjd_utc(struct tm* tm)
 {
 	int year=0, month=0, day=0, hour=0, min=0, sec=0;
-	printf("aca 1 End ADQ.\n");
 	year  = tm->tm_year + 1900;
 	month = tm->tm_mon + 1;
 	day   = tm->tm_mday;
 	hour  = tm->tm_hour;
 	min   = tm->tm_min;
 	sec   = tm->tm_sec;
-	printf("aca 2 End ADQ.\n");
-
 	// Julian day at 0h GMT of Greenwich
 	julian=(4712+year)*365.25;
 	if (julian == floor(julian))
@@ -1735,29 +1556,79 @@ void get_mjd_utc(struct tm* tm)
 	if(year == (floor(year/4)*4) && (month > 1))
 		julian+=1;
 	julian-=0.5;
-		
 	mjd=julian-2400000.5;
 	time_offset=(double)((hour*60+min)*60+sec)/(86400.0);
 	mjd+=time_offset;
 }
 
 
-//struct timeval wait_full_sec_micro(void) {
-//	struct timeval microtime;
-//	do{
-//		gettimeofday(&microtime, NULL);
-//  	}while(microtime.tv_usec!=0);
-//   	return microtime;
-//}
-
-
 struct timeval wait_full_sec_micro(void) {
         struct timeval microtime;
- //       do{
                 gettimeofday(&microtime, NULL);
- //       }while(microtime.tv_usec!=0);
         return microtime;
 }
+
+//- **********************************************************************
+void intHandler(int dummy) {
+        UNUSED(dummy);
+        keepRunning = 0;
+}
+
+static bool find_string(uhd_string_vector_handle h, char *str) 
+{ // Function used as part of the detection of the reference CLK
+  char buff[128];
+  size_t n;
+  int i;
+  uhd_string_vector_size(h, &n);
+  for (i=0;i<(int)n;i++) {
+    uhd_string_vector_at(h, i, buff, 128);
+    if (strstr(buff, str)) {
+      return true; 
+    }
+  }
+  return false; 
+}
+
+
+//- **********************************************************************
+void random_string(char * string, unsigned length)
+{ // Random generator, used to create random semaphores. to make sure that there is no pipe talking with a dead process.
+  srand((unsigned int) time(0) + getpid());
+   
+  unsigned i;  
+  for (i = 0; i < length; ++i)
+    {
+      string[i] = rand() % 25 + 97;
+    }
+ 
+  string[i] = '\0';  
+}
+// **********************************************************************
+void* toggle_cal()
+{ // Thread for Pulsar simulation for calibration 1 sec on - two sec off
+   wait_full_sec_micro();
+   while(1){
+        noise_on();
+        usleep(1000*1000);
+        noise_off();
+        usleep(2000*1000);
+   }
+}
+void* timer_1()
+{ // Thread function to show process, actually it just count the time spend. there is no actual check of the observation...
+int aux_c=0;
+sleep(5);
+printf("\n");
+for (aux_c=0;aux_c<secs;aux_c++){
+        fprintf(stderr,"Observing complete ---- %03.3f%%\r ",(float)((aux_c*100.0)/(secs)));
+        usleep(1000*1000);
+}
+fprintf(stderr,"\nDone....Closing Device - Wait for it\n");
+sleep(1);
+return NULL;
+}
+
+
 
 //-------------------------------------------------------------------------------------------------------------------------------
 
