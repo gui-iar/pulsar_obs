@@ -1,15 +1,15 @@
 /*
  * Program for measuring known Pulsars, using the Ettus USRP B2xx. Program modified from
- * rx_sample_c.c Copyright 2015 Ettus Research 
+ * rx_sample_c.c Copyright 2015 Ettus Research
  * with code from rtl_3_fil_duo from Steve Onley and rapulsar2 from Peter W. East.
- * New fft processing thanks to Nando Pellegrini 
- * 
- * Modification and compilation by G.Gancio for the Antenna I at IAR - 2018. * 
+ * New fft processing thanks to Nando Pellegrini
+ *
+ * Modification and compilation by G.Gancio for the Antenna I at IAR - 2018. *
  * Reviwed By Federico Garcia and Luciano Combi - For timing & timestamp
  *
  * Modified version by G.Gancio to use two USRP boards at the same time and sample ync with PPS and future_time
  * The two boards can be used to add frequencies side by side or to add them for two polarizatios.
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
@@ -32,7 +32,7 @@ Backend-1
     name: B205i
     serial: 312D58D
 
-Backend-2 
+Backend-2
     name: B205i
     serial: 314C049
     name: B205i
@@ -96,9 +96,10 @@ Backend-3
 //Defines **********************************
 #define future_time 4
 #define use_PPS 1 // 0 for 10MHz Reference
-#define two_pol 0
-#define add_pol 1
-#define add_freqs 0
+#define TWO_POL 0
+#define ADD_POL 0
+#define ADD_FREQ 1
+#define STOKES 0
 #define board_1 "serial=312D587"
 #define board_2 "serial=312D5A3"
 #define show_proc 1
@@ -427,7 +428,7 @@ if (pid > 0) /************************************************ parent process */
     *DECIM=samps_per_buff/Q;
     dsratio=avg_div;
     aux_t=(rate/avg_div);
-    tsamp=(float)1/aux_t; 
+    tsamp=(float)1/aux_t;
     if(ol<1.0){
 	printf("Direct conversion\n");
 	foff=((rate/Q));
@@ -439,7 +440,7 @@ if (pid > 0) /************************************************ parent process */
     	foff=((rate/Q)*-1);
     	freq=ol-(fch1-(rate/2));
 	}
-	if (add_freqs==1)
+#if (ADD_FREQ==1)
 		{
 			if(ol<1.0){
 			printf("ADD Freq Direct conversion\n");
@@ -452,20 +453,25 @@ if (pid > 0) /************************************************ parent process */
 				foff=(((rate*2)/(Q*2))*-1);
 				freq=ol-(fch1-(rate/2));
 			}
-		freq_b=freq+(rate);
+		freq_b=freq-(rate);
 		}
-	else if((add_pol==1)||(two_pol==1))
+#else
 		freq_b=freq;
+#endif
+
     printf("Number of RF Channels %d\n",Q);
     printf("Highest RF %fHz - Local Oscillator %fHz - \nchannel sample time %f - \naverage %d \nSample Rate %f\n",fch1/1e6,ol/1e6,tsamp*1e6,avg_div,rate);
-        if(two_pol)
+        if(TWO_POL)
                 printf("Writing data of two independent polarizations.\n");
-        if(add_pol)
+        if(ADD_POL)
                 printf("Writing data of summed polarizations.\n");
-        if(add_freqs)
+        if(ADD_FREQ)
                 printf("Writing data of continous frequency channels, Twice BW and Twice Channels.\n");
-
+        if(STOKES)
+                printf("Writing data for 4 polarization products.\n");
     *fft_samples=samps_per_buff;
+
+
 // Set up of the B2xx board---------------------------------------------------------
     // Create USRP
     uhd_usrp_handle usrp;
@@ -627,7 +633,7 @@ if(External_REF && (use_PPS == 0)){
     printf("Tot Sams reps %d\n",tot_samps);
    fork_start=0;
    uhd_rx_metadata_error_code_t error_code;
-//*******************************************************************************************
+// *******************************************************************************************
 //Second board
     uhd_rx_metadata_error_code_t error_code_2;
 // Set up of the B2xx board---------------------------------------------------------
@@ -774,7 +780,7 @@ if(External_REF && (use_PPS == 0)){
    printf("\n You just wait a little more...\n");
    sleep(10);
 
-//*******************************************************************************************
+// *******************************************************************************************
    int64_t aux_secs=0,aux_secs_loop=0;
    double aux_frac_secs=0.0;
         if(External_REF && use_PPS)
@@ -830,7 +836,7 @@ if(External_REF && (use_PPS == 0)){
                 printf("Board 1 - Get Time NOW.....%d - %f\n",(int)aux_secs_loop,aux_frac_secs);
 
 
-//*******************************************************************************************
+// *******************************************************************************************
 fprintf(stderr, "Prepare to Issuing stream command.\n");
 
    gettimeofday(&tv, NULL);
@@ -933,13 +939,13 @@ millisec = lrint(tv.tv_usec/1000.0);
 strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
 printf("Local Time Before First Read..... %s.%06d\n", buffer, millisec);
 if(show_proc)pthread_create(&time_1, NULL, &timer_1, NULL);
-// Ettus B2xx Read loop 
+// Ettus B2xx Read loop
    for(loop_samps=0;loop_samps<tot_samps;loop_samps++)
 	{
 	EXECUTE_OR_GOTO(close_file,
 		uhd_rx_streamer_recv(rx_streamer, buffs_ptr, samps_per_buff, &md, 3.0, false, &num_rx_samps) //Actual reading.
 	)
-	
+
 	EXECUTE_OR_GOTO(close_file,
 		uhd_rx_metadata_error_code(md, &error_code)
 	)
@@ -948,7 +954,7 @@ if(show_proc)pthread_create(&time_1, NULL, &timer_1, NULL);
 		goto close_file;
 	}
 	num_rx_samps2=num_rx_samps;
-//***************************************************************************************************
+// ***************************************************************************************************
 //Second board
 	EXECUTE_OR_GOTO(close_file,
 		uhd_rx_streamer_recv(rx_streamer_2, b_buffs_ptr, b_samps_per_buff, &md_2, 3.0, false, &b_num_rx_samps) //Actual reading.
@@ -961,7 +967,7 @@ if(show_proc)pthread_create(&time_1, NULL, &timer_1, NULL);
 		goto close_file;
 	}
 	b_num_rx_samps2=b_num_rx_samps;
-//***************************************************************************************************
+// ***************************************************************************************************
 if(mjd_start){
 	aux_secs_loop=0;
 	aux_frac_secs=0.0;
@@ -994,7 +1000,7 @@ if(mjd_start){
         tm=localtime(&now1);
         microtime = wait_full_sec_micro();
         }
-//***************************************************************************************************
+// ***************************************************************************************************
         if(fork_start==1){ //Wait for child process to finish, only after first run..
 		sem_wait(fft_done);}
 	memcpy(glob_var,buff,(samps_per_buff * 2 * sizeof(d_type)));
@@ -1101,7 +1107,7 @@ buff2 = NULL;
     }
     free(b_buff2);
 }
-b_buff2 = NULL;   
+b_buff2 = NULL;
 
 free_rx_streamer:
 if(verbose){
@@ -1139,7 +1145,7 @@ return return_code;
 else
 {
 	pid2 = fork();
-	if (pid2 == 0) 
+	if (pid2 == 0)
 		{ // ******************************child of child process for File Write.
 		printf("Sub_process Write\n");
 		FILE *tempfile1;
@@ -1160,146 +1166,220 @@ else
 		}
 		else {
 // ************************************************************* child process for FFT
+
+
+
+/*************** Start FFT process ********************/
+
+  /* Define FFTW variables */
 	sleep(15);
 	int write_flag=0;
-    int i,N2;
+  int i,N2;
 	N2=*fft_samples;
 	fftw_plan p;
 	fftw_complex in[N2], out[N2],  buff_aux0[N2];
 	fftw_plan b_p;
-	fftw_complex b_in[N2], b_out[N2],  b_buff_aux0[N2];	
+	fftw_complex b_in[N2], b_out[N2],  b_buff_aux0[N2];
 	int ii=0;
 	float pol_a=0.0,pol_b=0.0;
 	float *fft1_decim = NULL;
-	fft1_decim = malloc(write_buff * sizeof(float));
+  fft1_decim = malloc(write_buff * sizeof(float));
 	float *b_fft1_decim = NULL;
-	b_fft1_decim = malloc(write_buff * sizeof(float));	
+	b_fft1_decim = malloc(write_buff * sizeof(float));
 	int num_rx_samps2=N2;
 	int b_num_rx_samps2=N2;
 	int i_aux=0;
 	int ch_pol_aux=0;
 	printf("FFT Process - %f - %d - %d\n",freq,N2,*DECIM);
 	if(N2==0)
-	*fft_go=5;  
+	*fft_go=5;
+
+  /* Create a plan for calculate FFT for each polarization */
 	//----------------------------------------------------------------------
 		p = fftw_plan_dft_1d(N2, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
 		for(ii=0;ii<N2/(*DECIM);ii++)
-		                fft1_decim[ii]=0.0;
+		    fft1_decim[ii]=0.0;
 		b_p = fftw_plan_dft_1d(N2, b_in, b_out, FFTW_FORWARD, FFTW_ESTIMATE);
 		for(ii=0;ii<N2/(*DECIM);ii++)
-		                b_fft1_decim[ii]=0.0;		                
+		    b_fft1_decim[ii]=0.0;
 	//----------------------------------------------------------------------
+
+  // Starting the FFTW process
 	printf("Start process\n");
+
 	sem_wait(fft_start); // Block the child process so it can wait for valid data.
-	if(N2==0){
+
+  if(N2==0){
 		*fft_go=5;
-		printf("Probelm with FFT-Write proces, STOP the PROGRAM Please.....have a nice day.\n");
+		printf("Problem with FFT-Write proces, STOP the PROGRAM Please.....have a nice day.\n");
 		}
-	while(*fft_go!=5){  // Signal used to indicate that the obseration is done.
-		sem_wait(fft_start);
+
+  /* Start FFTW WHILE process */
+	while(*fft_go!=5) {  // Signal used to indicate that the obseration is done.
+
+    sem_wait(fft_start); //GUILLE: Por qué hay otro semáforo acá?
+
+/******************************************************************************************************************/
+// First board
 		ii=0;
+
 		//Move the data for the FFT array
-		for(i=0;i<(int)num_rx_samps2*2;i+=2){
-			        in[ii][0]=(float)glob_var[i]/255.0;
-			        in[ii][1]=(float)glob_var[i+1]/255.0;
+		for(i=0;i<(int)num_rx_samps2*2;i+=2) {
+			  in[ii][0]=(float)glob_var[i]/255.0;
+	      in[ii][1]=(float)glob_var[i+1]/255.0;
 				ii++;
-			}
-	      fftw_execute(p); // execute the FFT
-		// Re-order the out from the FFT to have the Bandwidth in the proper orientation.
-	      for (i = N2/2; i < N2; i++){
-			buff_aux0[i-(N2/2)][0]=out[i][0];
-			buff_aux0[i-(N2/2)][1]=out[i][1];
-			}
+		}
+	  fftw_execute(p); // execute the FFT
+
+    // Note that the FFTW save the result in the inverse order
+		// Re-order the output from the FFT to have the Bandwidth in the proper orientation.
+
+	  for (i = N2/2; i < N2; i++){
+	      buff_aux0[i-(N2/2)][0]=out[i][0];
+			  buff_aux0[i-(N2/2)][1]=out[i][1];
+		}
 		for (i = 0; i < N2/2; i++){
-			buff_aux0[i+N2/2][0]=out[i][0];
-			buff_aux0[i+N2/2][1]=out[i][1];
-			}
-//*****************************************************************************************************************
+			  buff_aux0[i+N2/2][0]=out[i][0];
+			  buff_aux0[i+N2/2][1]=out[i][1];
+		}
+
+// *****************************************************************************************************************/
 //Second board
+
 		ii=0;
 		//Move the data for the FFT array
-		for(i=0;i<(int)b_num_rx_samps2*2;i+=2){
-			        b_in[ii][0]=(float)b_glob_var[i]/255.0;
-			        b_in[ii][1]=(float)b_glob_var[i+1]/255.0;
+		for(i=0;i<(int)b_num_rx_samps2*2;i+=2) {
+		    b_in[ii][0]=(float)b_glob_var[i]/255.0;
+	      b_in[ii][1]=(float)b_glob_var[i+1]/255.0;
 				ii++;
-			}
-	      fftw_execute(b_p); // execute the FFT
-		// Re-order the out from the FFT to have the Bandwidth in the proper orientation.
-	      for (i = N2/2; i < N2; i++){
-			b_buff_aux0[i-(N2/2)][0]=b_out[i][0];
-			b_buff_aux0[i-(N2/2)][1]=b_out[i][1];
-			}
+		}
+	  fftw_execute(b_p); // execute the FFT
+		// Re-order the output from the FFT to have the Bandwidth in the proper orientation.
+	  for (i = N2/2; i < N2; i++) {
+		    b_buff_aux0[i-(N2/2)][0]=b_out[i][0];
+			  b_buff_aux0[i-(N2/2)][1]=b_out[i][1];
+		}
 		for (i = 0; i < N2/2; i++){
-			b_buff_aux0[i+N2/2][0]=b_out[i][0];
-			b_buff_aux0[i+N2/2][1]=b_out[i][1];
-			}  
-//*****************************************************************************************************************
-		// For loop to do the average of the FFT channels, acording to the required channels, and store them in the write buffer.
-		//N2 Average value = FFT point Value
-		//DECIM = FFT/Q = FFT / Number of channels
-		if(add_pol==1)
-			{
-			for (i=0;i<(N2/(*DECIM));i++)
-				{
-					for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++)
-							{
-							pol_a=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))/(10*log10(100));
-							pol_b=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))/(10*log10(100));			
-							fft1_decim[i_aux]=(pol_a+pol_b)+fft1_decim[i_aux];
-							}
-					fft1_decim[i_aux]=(fft1_decim[i_aux])/((float)(*DECIM)); 
-					i_aux++;
-				}
-			}
-			else if((add_freqs==1)||(two_pol==1))
-				{
+		    b_buff_aux0[i+N2/2][0]=b_out[i][0];
+		    b_buff_aux0[i+N2/2][1]=b_out[i][1];
+		}
+// *****************************************************************************************************************
+
+// For loop to do the average of the FFT channels, acording to the required channels, and store them in the write buffer.
+//N2 Average value = FFT point Value
+//DECIM = FFT/Q = FFT / Number of channels
+
+#if (ADD_POL)
+
+		    for (i=0;i<(N2/(*DECIM));i++)
+				{ //ii is the number of freq channel (0,Navg)
+					  for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++) {
+							  pol_a=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))/(10*log10(100));
+							  pol_b=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))/(10*log10(100));
+						    fft1_decim[i_aux] += (pol_a+pol_b);
+						}
+					  fft1_decim[i_aux] /= (float)(*DECIM);
+					  i_aux++;
+				 }
+
+#elif (STOKES)
+
+/* Writing Stokes parameter in fft1_decim */
+// We write them in order, one loop per polarization channel to respect the hierarchy given in the SIGPROC cpu_format
+// From SIGPRCO manual: s × nifs × nchans + i × nchans + c.
+
+          // I parameter
+          for (i=0;i<(N2/(*DECIM));i++)
+          { //ii is the number of freq channel (0,Navg)
+               for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++) {
+                    pol_a = buff_aux0[ii][0]*buff_aux0[ii][0] + buff_aux0[ii][1]*buff_aux0[ii][1];
+                    pol_b = b_buff_aux0[ii][0]*b_buff_aux0[ii][0] + b_buff_aux0[ii][1]*b_buff_aux0[ii][1];
+                    fft1_decim[i_aux] += ((pol_a + pol_b) / (10*log10(100)));
+               }
+               fft1_decim[i_aux] /= (float)(*DECIM);
+               i_aux++;
+           }
+
+           // Q parameter
+           for (i=0;i<(N2/(*DECIM));i++)
+           { //ii is the number of freq channel (0,Navg)
+               for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++) {
+                   fft1_decim[i_aux] += (2.0 * (buff_aux0[ii][0]*b_buff_aux0[ii][0] + buff_aux0[ii][1]*b_buff_aux0[ii][1]) / (10*log10(100)));
+               }
+               fft1_decim[i_aux] /= (float)(*DECIM);
+               i_aux++;
+            }
+
+            // U parameter
+            for (i=0;i<(N2/(*DECIM));i++)
+            { //ii is the number of freq channel (0,Navg)
+                for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++) {
+                    fft1_decim[i_aux] += (-2.0 * (buff_aux0[ii][0]*b_buff_aux0[ii][1] - buff_aux0[ii][1]*b_buff_aux0[ii][0]) / (10*log10(100)));
+                }
+                fft1_decim[i_aux] /= (float)(*DECIM);
+                i_aux++;
+             }
+
+             // V parameter
+             for (i=0;i<(N2/(*DECIM));i++)
+             { //ii is the number of freq channel (0,Navg)
+                for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++) {
+                    pol_a = buff_aux0[ii][0]*buff_aux0[ii][0] + buff_aux0[ii][1]*buff_aux0[ii][1];
+                    pol_b = b_buff_aux0[ii][0]*b_buff_aux0[ii][0] + b_buff_aux0[ii][1]*b_buff_aux0[ii][1];
+                    fft1_decim[i_aux] += ((pol_b - pol_a)  / (10*log10(100)));
+                }
+                fft1_decim[i_aux] /= (float)(*DECIM);
+                i_aux++;
+              }
+
+#elif ((ADD_FREQ) || (TWO_POL))
+
 				ch_pol_aux=(*DECIM);
 				for (i=0;i<(N2/(ch_pol_aux));i++)
 					{
-						for (ii = (i*(ch_pol_aux)); ii < ((ch_pol_aux)*(i+1)); ii++)
-								{
+						for (ii = (i*(ch_pol_aux)); ii < ((ch_pol_aux)*(i+1)); ii++) {
 								pol_a=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))/(10*log10(100));
-								fft1_decim[i_aux]=(pol_a)+fft1_decim[i_aux];
-								}
-						fft1_decim[i_aux]=(fft1_decim[i_aux])/((float)(ch_pol_aux)); 
+								fft1_decim[i_aux] += pol_a;
+						}
+						fft1_decim[i_aux] /= (float)(ch_pol_aux);
 						i_aux++;
 					}
 				for (i=0;i<(N2/(ch_pol_aux));i++)
-                                        {
+          {
 						for (ii = (i*(ch_pol_aux)); ii < ((ch_pol_aux)*(i+1)); ii++)
 								{
 								pol_b=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))/(10*log10(100));
-								fft1_decim[i_aux]=(pol_b)+fft1_decim[i_aux];
-								}
-						fft1_decim[i_aux]=(fft1_decim[i_aux])/((float)(ch_pol_aux)); 
+								fft1_decim[i_aux] += pol_b;
+						}
+						fft1_decim[i_aux] /= (float)(ch_pol_aux);
 						i_aux++;
-					}
 				}
-//*****************************************************************************************************************
-		if(i_aux==write_buff)
-			{ // if the write buffer is complete, it will wait for the previous write to be done and call the write-child porcess.
-			 if(write_flag==1)
-				{ //Wait for child process to finish.
-				sem_wait(write_done);
-				}
-			memcpy(data_temp,fft1_decim,write_buff*sizeof(float));
-			i_aux=0;
-			sem_post(write_start);
-			// clean the average buffers for the next readings.
-			for (i=0;i<write_buff;i++) 
+#endif
+// *****************************************************************************************************************
+
+  	if (i_aux==write_buff)
+		{ // if the write buffer is complete, it will wait for the previous write to be done and call the write-child porcess.
+			 if (write_flag==1)
+			 { //Wait for child process to finish.
+				     sem_wait(write_done);
+			 }
+			 memcpy(data_temp,fft1_decim,write_buff*sizeof(float));
+			 i_aux=0;
+			 sem_post(write_start);
+			 // clean the average buffers for the next readings.
+			 for (i=0;i<write_buff;i++)
 				{
-				fft1_decim[i]=0;
-				b_fft1_decim[i]=0;
+				     fft1_decim[i]=0;
+				     b_fft1_decim[i]=0;
 				}
-			write_flag=1;
-			}
-
-		if (*fft_go!=5){
-		sem_post(fft_done);
+			 write_flag=1;
 		}
+		if (*fft_go!=5) sem_post(fft_done);
+	}
 
-		}
-	// Once the observation is done, it will clear the mem.
+  /* FINISH FFTW WHILE process */
+
+  // Once the observation is done, it will clear the mem.
 	printf("End Child.\n");
 	fftw_destroy_plan(p);
 	fftw_destroy_plan(b_p);
@@ -1310,7 +1390,7 @@ else
 	munmap(data_temp, sizeof *data_temp);
 	b_fft1_decim = NULL;
 	munmap(b_glob_var, sizeof *b_glob_var);
-	munmap(b_data_temp, sizeof *b_data_temp);	
+	munmap(b_data_temp, sizeof *b_data_temp);
 	}
 	}
 	return 1;
@@ -1352,6 +1432,7 @@ bool readObservationData()
 
 	return true;
 }
+
 int getIntParamVal(char *dataline)
 {
 	char *startParamVal = strstr(dataline,",");
@@ -1417,22 +1498,26 @@ bool writeHeader(void)
 		send_int("data_type",1,outfileptr);
 		send_double("fch1",fch1/1e6,outfileptr);
 		send_double("foff",foff/1e6,outfileptr);
-		if (add_freqs==1)
+	#if (ADD_FREQ==1)
 			send_int("nchans",Q*2,outfileptr);
-		else
+	#else
 			send_int("nchans",Q,outfileptr);
+  #endif
 		send_int("nbeams",1,outfileptr);
 		send_int("ibeam",1,outfileptr);
 		send_int("nbits",nbits,outfileptr);
 		send_double("tstart",tstart,outfileptr);
 		send_double("tsamp",tsamp,outfileptr);
-		if (( add_pol==1) || (add_freqs==1))
+#if (( ADD_POL) || (ADD_FREQ))
 			send_int("nifs",1,outfileptr);
-		if (two_pol==1)
+#elif (TWO_POL)
 			send_int("nifs",2,outfileptr);
-		send_string("HEADER_END",outfileptr);
+#elif (STOKES)
+      send_int("nifs",4,outfileptr);
+#endif
+    send_string("HEADER_END",outfileptr);
 
- 
+
 		fclose(outfileptr);
 
 		return true;
@@ -1492,7 +1577,7 @@ int file_exists(char *filename)
 
 // From here functions to control the Noise diode with the LPT port.
 void noise_on(void)
-{ 
+{
 if(USE_DIODE)
 	//outb(0x01,base); // A1
 	outb(0x02,base); // A2
@@ -1507,7 +1592,7 @@ void set_port(void)
 if(USE_DIODE)
 {
 if(debug)printf("Using LPT for Noise Control\n");
-  if(ioperm(base,1,1)) 
+  if(ioperm(base,1,1))
     fprintf(stderr, "Couldn't open parallel port"), exit(1);
 }
 }
@@ -1553,7 +1638,7 @@ void get_mjd_utc(struct tm* tm)
 		julian+=31;
 	if (month > 11)
 		julian+=30;
-	if(year == (floor(year/4)*4) && (month > 1))
+	if(year == (floor(year/4)*4) && (month > 2))
 		julian+=1;
 	julian-=0.5;
 	mjd=julian-2400000.5;
@@ -1574,7 +1659,7 @@ void intHandler(int dummy) {
         keepRunning = 0;
 }
 
-static bool find_string(uhd_string_vector_handle h, char *str) 
+static bool find_string(uhd_string_vector_handle h, char *str)
 { // Function used as part of the detection of the reference CLK
   char buff[128];
   size_t n;
@@ -1583,10 +1668,10 @@ static bool find_string(uhd_string_vector_handle h, char *str)
   for (i=0;i<(int)n;i++) {
     uhd_string_vector_at(h, i, buff, 128);
     if (strstr(buff, str)) {
-      return true; 
+      return true;
     }
   }
-  return false; 
+  return false;
 }
 
 
@@ -1594,14 +1679,14 @@ static bool find_string(uhd_string_vector_handle h, char *str)
 void random_string(char * string, unsigned length)
 { // Random generator, used to create random semaphores. to make sure that there is no pipe talking with a dead process.
   srand((unsigned int) time(0) + getpid());
-   
-  unsigned i;  
+
+  unsigned i;
   for (i = 0; i < length; ++i)
     {
       string[i] = rand() % 25 + 97;
     }
- 
-  string[i] = '\0';  
+
+  string[i] = '\0';
 }
 // **********************************************************************
 void* toggle_cal()
@@ -1631,5 +1716,3 @@ return NULL;
 
 
 //-------------------------------------------------------------------------------------------------------------------------------
-
-
