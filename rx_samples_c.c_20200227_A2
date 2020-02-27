@@ -453,7 +453,7 @@ if (pid > 0) /************************************************ parent process */
 				foff=(((rate*2)/(Q*2))*-1);
 				freq=ol-(fch1-(rate/2));
 			}
-		freq_b=freq-(rate);
+		freq_b=freq+(rate);
 		}
 #else
 		freq_b=freq;
@@ -1284,8 +1284,8 @@ else
 		    for (i=0;i<(N2/(*DECIM));i++)
 				{ //ii is the number of freq channel (0,Navg)
 					  for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++) {
-							  pol_a=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))/(10*log10(ref_gain));
-							  pol_b=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))/(10*log10(ref_gain));
+							  pol_a=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]));///(10*log10(ref_gain));
+							  pol_b=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]));///(10*log10(ref_gain));
 						    fft1_decim[i_aux] += (pol_a+pol_b);
 						}
 					  fft1_decim[i_aux] /= (float)(*DECIM);
@@ -1304,7 +1304,7 @@ else
                for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++) {
                     pol_a = buff_aux0[ii][0]*buff_aux0[ii][0] + buff_aux0[ii][1]*buff_aux0[ii][1];
                     pol_b = b_buff_aux0[ii][0]*b_buff_aux0[ii][0] + b_buff_aux0[ii][1]*b_buff_aux0[ii][1];
-                    fft1_decim[i_aux] += ((pol_a + pol_b) / (10*log10(ref_gain)));
+                    fft1_decim[i_aux] += ((pol_a + pol_b));// / (10*log10(ref_gain)));
                }
                fft1_decim[i_aux] /= (float)(*DECIM);
                i_aux++;
@@ -1314,7 +1314,7 @@ else
            for (i=0;i<(N2/(*DECIM));i++)
            { //ii is the number of freq channel (0,Navg)
                for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++) {
-                   fft1_decim[i_aux] += (2.0 * (buff_aux0[ii][0]*b_buff_aux0[ii][0] + buff_aux0[ii][1]*b_buff_aux0[ii][1]) / (10*log10(ref_gain)));
+                   fft1_decim[i_aux] += (2.0 * (buff_aux0[ii][0]*b_buff_aux0[ii][0] + buff_aux0[ii][1]*b_buff_aux0[ii][1]));// / (10*log10(ref_gain)));
                }
                fft1_decim[i_aux] /= (float)(*DECIM);
                i_aux++;
@@ -1324,7 +1324,7 @@ else
             for (i=0;i<(N2/(*DECIM));i++)
             { //ii is the number of freq channel (0,Navg)
                 for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++) {
-                    fft1_decim[i_aux] += (-2.0 * (buff_aux0[ii][0]*b_buff_aux0[ii][1] - buff_aux0[ii][1]*b_buff_aux0[ii][0]) / (10*log10(ref_gain)));
+                    fft1_decim[i_aux] += (-2.0 * (buff_aux0[ii][0]*b_buff_aux0[ii][1] - buff_aux0[ii][1]*b_buff_aux0[ii][0]));// / (10*log10(ref_gain)));
                 }
                 fft1_decim[i_aux] /= (float)(*DECIM);
                 i_aux++;
@@ -1336,7 +1336,7 @@ else
                 for (ii = (i*(*DECIM)); ii < ((*DECIM)*(i+1)); ii++) {
                     pol_a = buff_aux0[ii][0]*buff_aux0[ii][0] + buff_aux0[ii][1]*buff_aux0[ii][1];
                     pol_b = b_buff_aux0[ii][0]*b_buff_aux0[ii][0] + b_buff_aux0[ii][1]*b_buff_aux0[ii][1];
-                    fft1_decim[i_aux] += ((pol_b - pol_a)  / (10*log10(ref_gain)));
+                    fft1_decim[i_aux] += ((pol_b - pol_a));//  / (10*log10(ref_gain)));
                 }
                 fft1_decim[i_aux] /= (float)(*DECIM);
                 i_aux++;
@@ -1348,7 +1348,7 @@ else
 				for (i=0;i<(N2/(ch_pol_aux));i++)
 					{
 						for (ii = (i*(ch_pol_aux)); ii < ((ch_pol_aux)*(i+1)); ii++) {
-								pol_a=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]))/(10*log10(ref_gain));
+								pol_a=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]));// /(10*log10(ref_gain));
 								fft1_decim[i_aux] += pol_a;
 						}
 						fft1_decim[i_aux] /= (float)(ch_pol_aux);
@@ -1358,7 +1358,7 @@ else
           {
 						for (ii = (i*(ch_pol_aux)); ii < ((ch_pol_aux)*(i+1)); ii++)
 								{
-								pol_b=((buff_aux0[ii][0]*buff_aux0[ii][0])+(buff_aux0[ii][1]*buff_aux0[ii][1]))/(10*log10(ref_gain));
+								pol_b=((b_buff_aux0[ii][0]*b_buff_aux0[ii][0])+(b_buff_aux0[ii][1]*b_buff_aux0[ii][1]));// /(10*log10(ref_gain));
 								fft1_decim[i_aux] += pol_b;
 						}
 						fft1_decim[i_aux] /= (float)(ch_pol_aux);
