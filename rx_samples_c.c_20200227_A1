@@ -101,6 +101,7 @@ Backend-3
 #define add_freqs 1
 #define board_1 "serial=314C049"
 #define board_2 "serial=314F813"
+#define gain_off_a 4.5 // offset gain for board_2
 #define show_proc 1
 #define External_REF 1
 #define USE_DIODE 1
@@ -743,7 +744,7 @@ if(External_REF && (use_PPS == 0)){
     // Set gain
     fprintf(stderr, "Setting RX Gain: %f dB...\n", gain);
     EXECUTE_OR_GOTO(free_rx_metadata,
-        uhd_usrp_set_rx_gain(usrp_2, gain, channel, "")
+        uhd_usrp_set_rx_gain(usrp_2, (gain+gain_off_a), channel, "") 
     )
 
     // See what gain actually is
