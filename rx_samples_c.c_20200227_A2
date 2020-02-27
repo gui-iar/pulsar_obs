@@ -432,14 +432,12 @@ if (pid > 0) /************************************************ parent process */
     if(ol<1.0){
 	printf("Direct conversion\n");
 	foff=((rate/Q));
-	fch1=fch1-(foff/2);
 	freq=(fch1-(rate/2));
 	}
 	else
 	{
 	printf("IF conversion\n");
     	foff=((rate/Q)*-1);
-	fch1=fch1-((rate/Q)/2);
     	freq=ol-(fch1-(rate/2));
 	}
 #if (ADD_FREQ==1)
@@ -447,14 +445,12 @@ if (pid > 0) /************************************************ parent process */
 			if(ol<1.0){
 			printf("ADD Freq Direct conversion\n");
 			foff=(((rate*2)/(Q*2)));
-			fch1=fch1-(((rate*2)/(Q*2))/2);
 			freq=(fch1-(rate/2));
 			}
 			else
 			{
 			printf("ADD FREQ IF conversion\n");
 				foff=(((rate*2)/(Q*2))*-1);
-				fch1=fch1-(((rate*2)/(Q*2))/2);
 				freq=ol-(fch1-(rate/2));
 			}
 		freq_b=freq-(rate);
