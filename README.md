@@ -29,11 +29,11 @@ Telescope ID,
 
 IAR-A1: 19
 
-IAR-A2: 23
+IAR-A2: 20
 
-DSA-3: 24
+DSA-3: n/a
 
-CLTC: 25
+CLTC: n/a
 
 
 Machine ID,
