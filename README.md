@@ -11,34 +11,44 @@ http://puma.iar.unlp.edu.ar/
 
 
 Note, to use presto tools with our location and codes, we need to edit the following files from...
+
 TEMPO:
+
 obsys.dat
 
+
 PRESTO: 
+
 telescope_to_tempocode() in misc_utils.c
+
 make_polycos() in polycos.c
 
-SIGPROC-style filterbank format data,
 get_telescope_name() in sigproc_fb.c
 
+
+SIGPROC: 
+
 and aliases.c
+
 
 This data will be used by the .fil header file, from the .iar file
 
 Telescope ID,
 
-IAR-A1: 19
+IAR-A1: 19, "IAR1", "A1", "m"
 
-IAR-A2: 20
+IAR-A2: 20, "IAR2", "A2", "n",
 
-DSA-3: n/a
+DSA-3: 24, "DSA3", "D3", "p",
 
-CLTC: n/a
+CLTC: 25, "CLTC", "CL", "q",
 
 
 Machine ID,
 
-USRP: 21
+RTL_Filterbank: 23
+IAR_ROACH_v1: 24
+IAR_SNAP_v1: 25
 
 
 #Now build tempo
