@@ -37,7 +37,7 @@ Telescope ID,
 
 IAR-A1: 19, "IAR1", "A1", "m"
 
-IAR-A2: 20, "IAR2", "A2", "n",
+IAR-A2: 20, "IAR2", "A2", "o",
 
 DSA-3: 24, "DSA3", "D3", "p",
 
