@@ -33,8 +33,10 @@ cd <uhd-repo-path>/host
 
   sudo make install
   
+  sudo ldconfig
   
-UHD_003.010.002.HEAD-0-gbd6e21dc
+  
+the branch shluld be...    UHD_003.010.002.HEAD-0-gbd6e21dc
 
 
 
