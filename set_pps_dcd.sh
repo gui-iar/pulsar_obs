@@ -1,5 +1,5 @@
 #bash
-# sudo apt-get install setserial ntp
+# sudo apt-get install setserial ntp pps-tools
 ntpd
 service ntp restart
 modprobe pps_ldisc
