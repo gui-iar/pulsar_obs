@@ -17,7 +17,7 @@ In case of error....  sudo apt-get install python-mako --reinstall
 
 git clone https://github.com/EttusResearch/uhd.git
 
-git checkout  UHD-3.10.2 or get the tar.gz
+The original version was based on...... git checkout  UHD-3.10.2 or get the tar.gz, the branch shluld be UHD_003.010.002.HEAD-0-gbd6e21dc ...... but may not work with newer distributions
 
 cd <uhd-repo-path>/host
 
@@ -36,7 +36,7 @@ cd <uhd-repo-path>/host
   sudo ldconfig
   
   
-the branch shluld be...    UHD_003.010.002.HEAD-0-gbd6e21dc
+
 
 install FFTW3 and FFTW3-dev  sudo apt-get install -y fftw3-dev 
   
