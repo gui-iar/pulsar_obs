@@ -6,6 +6,38 @@ Its not a prety code, but it works.
 the py code is part of the 'run' scripts.
 
 The code is used as part of the software developments from the PUMA Project, for Pulsar Monitoring in Argentina, using the two 30 meter Radiotelescopes from the Argentine Intitute of Radioastronomy.
+Instal and use of pulsar rx_samples
+
+https://files.ettus.com/manual/page_build_guide.html
+
+sudo apt-get install libboost-all-dev libusb-1.0-0-dev doxygen python3-docutils python3-mako python3-numpy python3-requests python3-ruamel.yaml python3-setuptools cmake build-essential
+
+In case of error....  sudo apt-get install python-mako --reinstall
+
+
+git clone https://github.com/EttusResearch/uhd.git
+
+git checkout  UHD-3.10
+
+cd <uhd-repo-path>/host
+
+  mkdir build
+
+  cd build
+
+  cmake ../
+  
+  make
+
+  make test # This step is optional
+
+  sudo make install
+  
+  
+UHD_003.010.002.HEAD-0-gbd6e21dc
+
+
+
 
 http://puma.iar.unlp.edu.ar/
 
