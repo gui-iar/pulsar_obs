@@ -62,6 +62,8 @@ examples/CMakeFiles/rx_samples_c.dir/link.txt
   
 At last implement the bash scripts, set_cpu_performance.sh and set_pps_dcd.sh
   
+  If everything is ok we can test it with pul_cal.iar
+  
   http://puma.iar.unlp.edu.ar/
 
 
