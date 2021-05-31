@@ -60,9 +60,11 @@ examples/CMakeFiles/rx_samples_c.dir/link.txt
 
   dont forget to sudo /usr/local/lib/uhd/utils/uhd_images_downloader.py
   
+  export UHD_IMAGES_DIR=/usr/local/share/uhd/images/
+  
 At last implement the bash scripts, set_cpu_performance.sh and set_pps_dcd.sh
   
-  If everything is ok we can test it with pul_cal.iar
+  If everything is ok we can test it with sudo -E examples/rx_samples_c -p pul_cal
   
   http://puma.iar.unlp.edu.ar/
 
