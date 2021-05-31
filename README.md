@@ -58,6 +58,8 @@ examples/CMakeFiles/rx_samples_c.dir/link.txt
   
   make rx_samples_c
 
+  dont forget to sudo /usr/local/lib/uhd/utils/uhd_images_downloader.py
+  
 At last implement the bash scripts, set_cpu_performance.sh and set_pps_dcd.sh
   
   http://puma.iar.unlp.edu.ar/
