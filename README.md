@@ -41,6 +41,8 @@ the branch shluld be...    UHD_003.010.002.HEAD-0-gbd6e21dc
 install FFTW3 and FFTW3-dev  sudo apt-get install -y fftw3-dev 
   
 Copy the git file rx_samples_c.c_20200x0x_Ax to host/examples, and replace the file rx_samples_c.c
+  
+add in host/include the file rtl2filduo.h
 
 edit xxx and add...
   
@@ -53,6 +55,8 @@ examples/CMakeFiles/rx_samples_c.dir/link.txt
   -lfftw3
   
   build the examples.
+  
+  make rx_samples_c
 
 At last implement the bash scripts, set_cpu_performance.sh and set_pps_dcd.sh
   
