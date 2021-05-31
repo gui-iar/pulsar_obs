@@ -38,7 +38,7 @@ cd <uhd-repo-path>/host
   
 the branch shluld be...    UHD_003.010.002.HEAD-0-gbd6e21dc
 
-install FFTW3 and FFTW3-dev
+install FFTW3 and FFTW3-dev  sudo apt-get install -y fftw3-dev 
   
 Copy the git file rx_samples_c.c_20200x0x_Ax to host/examples, and replace the file rx_samples_c.c
 
