@@ -1,0 +1,16 @@
+Source Name,cont_line_A2
+Source RA (hhmmss.s),010000.00
+Source DEC (ddmmss.s),-100000.00
+Reference DM,10.0
+Pulsar Period,10.00
+Highest Observation Frequency (MHz),1473.5
+Telescope ID,20
+Machine ID,23
+Data Type,1
+Observing Time (minutes),480
+Local Oscillator (MHz),0
+Gain (dB),20
+Total Bandwith (MHz),50
+Average Data,1024
+Sub Bands,1024
+Cal,0
